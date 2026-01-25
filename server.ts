@@ -7,17 +7,19 @@ dotenv.config();
 
 const { Pool } = pg;
 
+// Initialize the database pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 const app = express();
 
-app.use(express.json());
-app.use(cors());
+// Fix: Use any cast to resolve middleware type mismatch with express app.use overloads in TypeScript
+app.use(express.json() as any);
+app.use(cors() as any);
 
-// Test connection on startup
+// Test connection
 (async () => {
   let client;
   try {
@@ -37,9 +39,7 @@ app.get('/api/settings', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM settings');
     const settings: Record<string, string> = {};
-    result.rows.forEach((row) => {
-      settings[row.key] = row.value;
-    });
+    result.rows.forEach(row => { settings[row.key] = row.value; });
     res.json(settings);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -52,7 +52,7 @@ app.post('/api/settings', async (req, res) => {
     for (const [key, value] of Object.entries(settings)) {
       await pool.query(
         'INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value',
-        [key, value as string],
+        [key, value as string]
       );
     }
     res.json({ success: true });
@@ -67,7 +67,7 @@ app.post('/api/settings', async (req, res) => {
 app.get('/api/employees', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM employees ORDER BY joined_date DESC');
-    const employees = result.rows.map((row) => ({
+    const employees = result.rows.map(row => ({
       ...row,
       firstName: row.first_name,
       lastName: row.last_name,
@@ -78,7 +78,7 @@ app.get('/api/employees', async (req, res) => {
       benefits: parseFloat(row.benefits),
       totalLeaveDays: row.total_leave_days,
       remainingLeaveDays: row.remaining_leave_days,
-      joinedDate: row.joined_date,
+      joinedDate: row.joined_date
     }));
     res.json(employees);
   } catch (error: any) {
@@ -106,8 +106,8 @@ app.post('/api/employees', async (req, res) => {
         e.benefits,
         e.totalLeaveDays ?? 21,
         e.remainingLeaveDays ?? 21,
-        e.joinedDate,
-      ],
+        e.joinedDate
+      ]
     );
     res.status(201).json(e);
   } catch (error: any) {
@@ -136,8 +136,8 @@ app.put('/api/employees/:id', async (req, res) => {
         e.benefits,
         e.totalLeaveDays,
         e.remainingLeaveDays,
-        id,
-      ],
+        id
+      ]
     );
     res.json(e);
   } catch (error: any) {
@@ -151,13 +151,13 @@ app.put('/api/employees/:id', async (req, res) => {
 app.get('/api/payroll', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM payroll_records ORDER BY processed_at DESC');
-    const records = result.rows.map((row) => ({
+    const records = result.rows.map(row => ({
       ...row,
       employeeId: row.employee_id,
       grossSalary: parseFloat(row.gross_salary),
       netSalary: parseFloat(row.net_salary),
       taxableIncome: parseFloat(row.taxable_income),
-      processedAt: row.processed_at,
+      processedAt: row.processed_at
     }));
     res.json(records);
   } catch (error: any) {
@@ -195,7 +195,7 @@ app.post('/api/payroll', async (req, res) => {
         r.sha,
         r.nita,
         r.netSalary,
-        r.processedAt,
+        r.processedAt
       ]);
     }
 
@@ -218,33 +218,23 @@ app.get('/api/leave-requests', async (req, res) => {
     let result;
     if (employeeId) {
       result = await pool.query(
-        `SELECT lr.*, e.first_name, e.last_name 
-         FROM leave_requests lr 
-         JOIN employees e ON lr.employee_id = e.id 
-         WHERE lr.employee_id = $1 
-         ORDER BY lr.requested_at DESC`,
-        [employeeId],
+        'SELECT lr.*, e.first_name, e.last_name FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id WHERE lr.employee_id = $1 ORDER BY lr.requested_at DESC',
+        [employeeId]
       );
     } else {
       result = await pool.query(
-        `SELECT lr.*, e.first_name, e.last_name 
-         FROM leave_requests lr 
-         JOIN employees e ON lr.employee_id = e.id 
-         ORDER BY lr.requested_at DESC`,
+        'SELECT lr.*, e.first_name, e.last_name FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id ORDER BY lr.requested_at DESC'
       );
     }
-
-    const requests = result.rows.map((row) => ({
+    res.json(result.rows.map(row => ({
       ...row,
       employeeId: row.employee_id,
       firstName: row.first_name,
       lastName: row.last_name,
       startDate: row.start_date,
       endDate: row.end_date,
-      requestedAt: row.requested_at,
-    }));
-
-    res.json(requests);
+      requestedAt: row.requested_at
+    })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -255,7 +245,7 @@ app.post('/api/leave-requests', async (req, res) => {
     const r = req.body;
     await pool.query(
       'INSERT INTO leave_requests (id, employee_id, start_date, end_date, reason, status, requested_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [r.id, r.employeeId, r.startDate, r.endDate, r.reason, r.status, r.requestedAt],
+      [r.id, r.employeeId, r.startDate, r.endDate, r.reason, r.status, r.requestedAt]
     );
     res.status(201).json(r);
   } catch (error: any) {
@@ -267,16 +257,10 @@ app.put('/api/leave-requests/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, employeeId, daysToSubtract } = req.body;
-
     await pool.query('UPDATE leave_requests SET status = $1 WHERE id = $2', [status, id]);
-
     if (status === 'approved' && daysToSubtract > 0) {
-      await pool.query(
-        'UPDATE employees SET remaining_leave_days = remaining_leave_days - $1 WHERE id = $2',
-        [daysToSubtract, employeeId],
-      );
+      await pool.query('UPDATE employees SET remaining_leave_days = remaining_leave_days - $1 WHERE id = $2', [daysToSubtract, employeeId]);
     }
-
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -289,13 +273,11 @@ app.put('/api/leave-requests/:id/status', async (req, res) => {
 app.get('/api/audits', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM payroll_audits ORDER BY timestamp DESC');
-    res.json(
-      result.rows.map((row) => ({
-        ...row,
-        performedBy: row.performed_by,
-        userRole: row.user_role,
-      })),
-    );
+    res.json(result.rows.map(row => ({
+      ...row,
+      performedBy: row.performed_by,
+      userRole: row.user_role
+    })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -306,7 +288,7 @@ app.post('/api/audits', async (req, res) => {
     const a = req.body;
     await pool.query(
       'INSERT INTO payroll_audits (id, performed_by, user_role, action, details, timestamp) VALUES ($1, $2, $3, $4, $5, $6)',
-      [a.id, a.performedBy, a.userRole, a.action, a.details, a.timestamp],
+      [a.id, a.performedBy, a.userRole, a.action, a.details, a.timestamp]
     );
     res.status(201).json({ success: true });
   } catch (error: any) {
@@ -315,7 +297,7 @@ app.post('/api/audits', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────
-// Payslip Sharing
+// Share Payslip
 // ────────────────────────────────────────────────
 app.post('/api/share-payslip', async (req, res) => {
   try {
