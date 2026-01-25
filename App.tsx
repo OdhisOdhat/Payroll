@@ -55,7 +55,8 @@ import {
   Download,
   Upload,
   FileDown,
-  FileText as FileIcon
+  FileText as FileIcon,
+  Zap
 } from 'lucide-react';
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from './types';
 import { calculatePayroll } from './utils/calculations';
@@ -365,8 +366,7 @@ const App: React.FC = () => {
     } catch (error) {
       alert("Failed to submit leave request.");
     } finally {
-      setIsLoading(true); // Trigger reload
-      window.location.reload(); // Simple way to refresh data
+      setIsLoading(false);
     }
   };
 
@@ -382,7 +382,6 @@ const App: React.FC = () => {
       setIsLoading(true);
       await apiService.updateLeaveStatus(id, status, employeeId, diffDays);
       
-      // Update local state
       setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status } : l));
       
       if (status === 'approved') {
@@ -435,7 +434,7 @@ const App: React.FC = () => {
         performedBy: `${user.firstName} ${user.lastName}`,
         userRole: user.role,
         action: 'Payslip Shared',
-        details: `Shared payslip for ${selectedEmployee.firstName} ${selectedEmployee.lastName} with ${shareEmail}. Employee notified via security protocol.`,
+        details: `Shared payslip for ${selectedEmployee.firstName} ${selectedEmployee.lastName} with ${shareEmail}.`,
         timestamp: new Date().toISOString()
       });
 
@@ -474,7 +473,7 @@ const App: React.FC = () => {
         performedBy: `${user.firstName} ${user.lastName}`,
         userRole: user.role,
         action: 'Payroll Run Committed',
-        details: `Processed payroll for ${newRecords.length} employees. Net Salary: KES ${newRecords.reduce((acc, curr) => acc + (curr.netSalary as number), 0).toLocaleString()}. Email notifications dispatched.`,
+        details: `Processed payroll for ${newRecords.length} employees.`,
         timestamp: now.toISOString()
       };
       await apiService.saveAuditLog(auditLog);
@@ -539,12 +538,10 @@ const App: React.FC = () => {
 
       for (const entry of importedData) {
         try {
-          // Basic validation
           if (!entry.firstName || !entry.lastName || !entry.email) {
             errorCount++;
             continue;
           }
-          
           await apiService.saveEmployee(entry as Employee);
           successCount++;
         } catch (err) {
@@ -555,11 +552,10 @@ const App: React.FC = () => {
       setIsLoading(false);
       alert(`Import complete: ${successCount} successful, ${errorCount} errors.`);
       
-      // Reload employees
       const freshEmps = await apiService.getEmployees();
       setEmployees(freshEmps);
       
-      if (event.target) event.target.value = ''; // Reset input
+      if (event.target) event.target.value = '';
     };
     reader.readAsText(file);
   };
@@ -690,16 +686,25 @@ const App: React.FC = () => {
           {activeTab === 'dashboard' && (
             <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex justify-between items-end">
-                <div><h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">{(user.role === 'admin' || user.role === 'tax') ? 'Organization Pulse' : `Hello, ${user.firstName}`}</h2><p className="text-slate-500 mt-2 text-lg">{(user.role === 'admin' || user.role === 'tax') ? 'Real-time payroll distribution and compliance monitoring.' : 'Your personal earnings and tax summary.'}</p></div>
+                <div>
+                  <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">{(user.role === 'admin' || user.role === 'tax') ? 'Organization Pulse' : `Hello, ${user.firstName}`}</h2>
+                  <div className="flex items-center gap-3 mt-2">
+                    <p className="text-slate-500 text-lg">{(user.role === 'admin' || user.role === 'tax') ? 'Real-time payroll distribution and compliance monitoring.' : 'Your personal earnings and tax summary.'}</p>
+                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border ${dbStatus === 'online' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                      {dbStatus === 'online' ? <Zap size={10} className="fill-emerald-600" /> : <Loader2 size={10} className="animate-spin" />}
+                      {dbStatus === 'online' ? 'Supabase Connected' : 'Local Fallback Mode'}
+                    </div>
+                  </div>
+                </div>
                 {(user.role === 'admin' || user.role === 'tax') && (
                   <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4"><div className="stat-card-blue p-3 rounded-xl font-black">KES</div><div><div className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Total Liability</div><div className="text-2xl font-black text-slate-800">{stats.totalGross.toLocaleString()}</div></div></div>
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Income Tax" value={stats.totalPaye} color="text-red-600" bgColor="bg-red-50" icon={<Cloud size={16}/>} />
-                <StatCard title="Social Security" value={stats.totalNssf} color="custom-theme-text" bgColor="bg-blue-50" icon={<Database size={16}/>} />
-                <StatCard title="Health Levy (SHA)" value={stats.totalSha} color="text-emerald-600" bgColor="bg-emerald-50" icon={<Cloud size={16}/>} />
-                <StatCard title="Housing Levy" value={stats.totalHousing} color="text-violet-600" bgColor="bg-violet-50" icon={<Database size={16}/>} />
+                <StatCard title="Income Tax (PAYE)" value={stats.totalPaye} color="text-red-600" bgColor="bg-red-50" icon={<Scale size={16}/>} />
+                <StatCard title="Social Security (NSSF)" value={stats.totalNssf} color="custom-theme-text" bgColor="bg-blue-50" icon={<ShieldCheck size={16}/>} />
+                <StatCard title="Health Levy (SHA)" value={stats.totalSha} color="text-emerald-600" bgColor="bg-emerald-50" icon={<Activity size={16}/>} />
+                <StatCard title="Housing Levy" value={stats.totalHousing} color="text-violet-600" bgColor="bg-violet-50" icon={<Building2 size={16}/>} />
               </div>
 
               {(user.role === 'admin' || user.role === 'tax') && (
@@ -733,16 +738,16 @@ const App: React.FC = () => {
                       <p className="text-slate-300 text-sm font-medium mb-8 relative leading-relaxed">System activity is being logged in accordance with enterprise compliance standards. Personnel access is tiered based on verified role identities.</p>
                       <div className="space-y-6 relative">
                          <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
-                            <div className="text-xs font-black uppercase tracking-widest">Database Sync Active</div>
+                            <div className={`w-2 h-2 rounded-full shadow-lg ${dbStatus === 'online' ? 'bg-emerald-400 shadow-emerald-400/50' : 'bg-amber-400 shadow-amber-400/50'}`}></div>
+                            <div className="text-xs font-black uppercase tracking-widest">{dbStatus === 'online' ? 'Supabase Sync Active' : 'Local Data Mode'}</div>
                          </div>
                          <div className="flex items-center gap-3">
                             <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
                             <div className="text-xs font-black uppercase tracking-widest">Audit Engine Encrypted</div>
                          </div>
                          <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50"></div>
-                            <div className="text-xs font-black uppercase tracking-widest">Authorized Tax Sign-offs</div>
+                            <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
+                            <div className="text-xs font-black uppercase tracking-widest">SHA/NSSF Validated</div>
                          </div>
                       </div>
                    </div>
@@ -1191,10 +1196,46 @@ const App: React.FC = () => {
 
           {activeTab === 'reports' && (
             <div className="space-y-10 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center"><h2 className="text-3xl font-black text-slate-800 tracking-tight">Compliance & Reporting</h2><div className="flex gap-4"><button onClick={() => setShowShareModal(true)} disabled={!selectedEmployee} className="flex items-center gap-2 custom-theme-bg text-white px-6 py-3 rounded-2xl font-bold shadow-xl disabled:opacity-50 hover:opacity-90 transition-all"><Share2 size={18} /> Secure Share</button><button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl hover:opacity-90 transition-all"><Printer size={18} /> Export PDF</button></div></div>
+              <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black text-slate-800 tracking-tight">Compliance & Reporting</h2>
+                <div className="flex gap-4">
+                  <button onClick={() => setShowShareModal(true)} disabled={!selectedEmployee} className="flex items-center gap-2 custom-theme-bg text-white px-6 py-3 rounded-2xl font-bold shadow-xl disabled:opacity-50 hover:opacity-90 transition-all">
+                    <Share2 size={18} /> Secure Share
+                  </button>
+                  <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl hover:opacity-90 transition-all">
+                    <Printer size={18} /> Export PDF
+                  </button>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8"><h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Receipt className="custom-theme-text" /> Individual Payslip</h3><div className="space-y-6">{(user?.role === 'admin' || user?.role === 'tax') && (<select className="w-full border-2 border-slate-100 rounded-2xl p-4 bg-slate-50 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" onChange={(e) => { const emp = employees.find(emp => emp.id === e.target.value); if (emp) setSelectedEmployee(emp); }} value={selectedEmployee?.id || ""}><option value="" disabled>Select Staff Member</option>{employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}</select>)}{selectedEmployee && (<div className="border border-slate-100 rounded-3xl p-6 bg-slate-50/50 scale-90 origin-top shadow-inner"><Payslip employee={selectedEmployee} record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} brand={brandSettings} /></div>)}</div></div>
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8"><h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><FileText className="text-indigo-500" /> Annual Tax Summary (P9)</h3>{selectedEmployee ? (<div className="space-y-4"><div className="border border-slate-100 rounded-3xl p-6 overflow-y-auto h-[500px] shadow-inner"><P9Form employee={selectedEmployee} records={accessiblePayroll.filter(r => r.employeeId === selectedEmployee.id)} brand={brandSettings} /></div></div>) : (<div className="h-[500px] border-4 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-slate-400 font-bold">Select personnel for P9 card.</div>)}</div>
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8">
+                  <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Receipt className="custom-theme-text" /> Individual Payslip</h3>
+                  <div className="space-y-6">
+                    {(user?.role === 'admin' || user?.role === 'tax') && (
+                      <select className="w-full border-2 border-slate-100 rounded-2xl p-4 bg-slate-50 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" onChange={(e) => { const emp = employees.find(emp => emp.id === e.target.value); if (emp) setSelectedEmployee(emp); }} value={selectedEmployee?.id || ""}>
+                        <option value="" disabled>Select Staff Member</option>
+                        {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
+                      </select>
+                    )}
+                    {selectedEmployee && (
+                      <div className="border border-slate-100 rounded-3xl p-6 bg-slate-50/50 scale-90 origin-top shadow-inner">
+                        <Payslip employee={selectedEmployee} record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} brand={brandSettings} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8">
+                  <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><FileText className="text-indigo-500" /> Annual Tax Summary (P9)</h3>
+                  {selectedEmployee ? (
+                    <div className="space-y-4">
+                      <div className="border border-slate-100 rounded-3xl p-6 overflow-y-auto h-[500px] shadow-inner">
+                        <P9Form employee={selectedEmployee} records={accessiblePayroll.filter(r => r.employeeId === selectedEmployee.id)} brand={brandSettings} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-[500px] border-4 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-slate-400 font-bold">Select personnel for P9 card.</div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1406,14 +1447,14 @@ const App: React.FC = () => {
                        </div>
                     </div>
                     <div className="space-y-2">
-                       <div className="flex justify-between items-center"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Secure Message Content</label><button onClick={handleDraftEmail} disabled={isDraftingEmail} className="custom-theme-text text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:underline disabled:opacity-50 transition-all bg-blue-50 px-3 py-1.5 rounded-lg"><Sparkles size={12} /> {isDraftingEmail ? 'Draft with AI' : 'Draft with AI'}</button></div>
+                       <div className="flex justify-between items-center"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Secure Message Content</label><button onClick={handleDraftEmail} disabled={isDraftingEmail} className="custom-theme-text text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:underline disabled:opacity-50 transition-all bg-blue-50 px-3 py-1.5 rounded-lg"><Sparkles size={12} /> Draft with AI</button></div>
                        <textarea rows={4} value={shareMessage} onChange={(e) => setShareMessage(e.target.value)} placeholder="Enter instructions for the recipient..." className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-medium text-slate-700 outline-none focus:custom-theme-border transition-all resize-none" />
                     </div>
                     <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 flex items-start gap-4">
                        <div className="p-3 bg-white rounded-xl text-amber-600 shadow-sm"><ShieldAlert size={20} /></div>
                        <div className="text-[10px] text-amber-900 font-bold leading-relaxed space-y-1">
                           <p className="uppercase tracking-widest text-amber-700 font-black">Security Protocol Active</p>
-                          <p className="opacity-70">This action generates a confidential, one-time-access link that expires automatically after 24 hours. The recipient will be required to verify their identity via the secure portal.</p>
+                          <p className="opacity-70">This action generates a confidential, one-time-access link that expires automatically after 24 hours.</p>
                        </div>
                     </div>
                     <div className="flex gap-4 pt-4">
