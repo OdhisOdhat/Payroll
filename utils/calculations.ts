@@ -44,6 +44,7 @@ export const calculatePayroll = (basicSalary: number, benefits: number = 0): Omi
 
   return {
     grossSalary,
+    benefits,
     nssf,
     taxableIncome,
     paye,

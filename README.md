@@ -1,20 +1,62 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# PayrollPro Kenya 🇰🇪
 
-# Run and deploy your AI Studio app
+An advanced, AI-powered Payroll Management System tailored for the Kenyan statutory environment (2024/2025 regulations).
 
-This contains everything you need to run your app locally.
+## 🚀 Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/1qxJYhet9jnH6QhfelesZlMW5ka6P9gwA
+- **Statutory Compliance**: Automated calculation of:
+  - **PAYE**: Based on the latest tiered tax brackets.
+  - **SHA (Social Health Authority)**: Calculated at 2.75% of Gross Salary.
+  - **NSSF**: Tier I and Tier II contributions.
+  - **Affordable Housing Levy**: 1.5% of Gross Salary.
+- **Role-Based Access Control (RBAC)**:
+  - **Admin**: Full control over personnel onboarding, monthly payroll execution, and system overrides.
+  - **Authorized Tax Officer**: Access to compliance reports, audit trails, and tax logic verification.
+  - **Staff**: Secure portal to view personal payslips and download annual P9 forms.
+- **AI-Powered Insights**: Integration with Gemini API to explain tax deductions and provide financial advice to employees.
+- **Document Generation**: High-fidelity Payslips and P9 Forms ready for printing or PDF export.
+- **Hybrid Storage**: Real-time synchronization with **Turso (SQLite)** with local-first fallback capabilities.
 
-## Run Locally
+## 🛠 Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React (v19), Tailwind CSS, Lucide Icons.
+- **Backend**: Node.js, Express.
+- **Database**: Turso (LibSQL/SQLite).
+- **AI**: Google Gemini (via `@google/genai`).
+- **Module Management**: Native ESM with Import Maps.
 
+## 📦 Setup & Installation
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. **Clone the repository**:
+   ```bash
+   git clone <your-repo-url>
+   cd payroll-pro-kenya
+   ```
+
+2. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Environment Variables**:
+   Create a `.env` file and add your keys:
+   ```env
+   API_KEY=your_gemini_api_key
+   TURSO_URL=your_turso_db_url
+   TURSO_AUTH_TOKEN=your_turso_token
+   ```
+
+4. **Run the Application**:
+   - Start Backend: `npm run server`
+   - Start Frontend: Open `index.html` via a local dev server (e.g., Live Server).
+
+## ⚖️ Statutory Logic (2024)
+
+This application strictly follows the Kenyan Finance Act guidelines.
+- **Personal Relief**: KES 2,400 per month.
+- **Insurance Relief**: Calculated where applicable.
+- **NITA Levy**: Tracked as an employer liability.
+
+## 📝 License
+
+Proprietary. All rights reserved.
