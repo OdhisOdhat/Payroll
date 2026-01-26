@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, 
@@ -56,7 +55,8 @@ import {
   Upload,
   FileDown,
   FileText as FileIcon,
-  Zap
+  Zap,
+  ChevronLast
 } from 'lucide-react';
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from './types';
 import { calculatePayroll } from './utils/calculations';
@@ -80,7 +80,9 @@ const App: React.FC = () => {
     primaryColor: '#2563eb',
     address: '123 Nairobi, Kenya'
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [showSkipButton, setShowSkipButton] = useState(false);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showLeaveRequestModal, setShowLeaveRequestModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -123,20 +125,29 @@ const App: React.FC = () => {
 
   // Load data from Hybrid API Service
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setIsInitializing(false);
+      return;
+    }
+    
+    // Safety timer to show skip button if initialization is slow
+    const skipTimer = setTimeout(() => setShowSkipButton(true), 2500);
+    // Hard limit to force remove loading screen
+    const hardLimitTimer = setTimeout(() => setIsInitializing(false), 6000);
     
     const loadInitialData = async () => {
-      setIsLoading(true);
+      setIsInitializing(true);
       try {
         const isOnline = await apiService.checkBackend();
         setDbStatus(isOnline ? 'online' : 'local');
 
+        // Fetch data concurrently with individual catch blocks to prevent one failure blocking all
         const [empData, payrollData, auditData, brandData, leaveData] = await Promise.all([
-          apiService.getEmployees(),
-          apiService.getPayrollHistory(),
-          apiService.getAuditLogs(),
-          apiService.getBrandSettings(),
-          apiService.getLeaveRequests(user.role === 'staff' ? user.employeeId : undefined)
+          apiService.getEmployees().catch(() => []),
+          apiService.getPayrollHistory().catch(() => []),
+          apiService.getAuditLogs().catch(() => []),
+          apiService.getBrandSettings().catch(() => null),
+          apiService.getLeaveRequests(user.role === 'staff' ? user.employeeId : undefined).catch(() => [])
         ]);
         
         setEmployees(Array.isArray(empData) ? empData : []);
@@ -146,17 +157,24 @@ const App: React.FC = () => {
         if (brandData) setBrandSettings(brandData);
         
         if (user.role === 'staff' && user.employeeId) {
-          const self = empData.find(e => e.id === user.employeeId);
+          const self = (Array.isArray(empData) ? empData : []).find(e => e.id === user.employeeId);
           if (self) setSelectedEmployee(self);
         }
       } catch (error) {
-        console.error("Data Load Error:", error);
+        console.error("Critical Data Load Error:", error);
         setDbStatus('error');
       } finally {
-        setIsLoading(false);
+        setIsInitializing(false);
+        clearTimeout(skipTimer);
+        clearTimeout(hardLimitTimer);
       }
     };
     loadInitialData();
+    
+    return () => {
+      clearTimeout(skipTimer);
+      clearTimeout(hardLimitTimer);
+    };
   }, [user]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -184,6 +202,8 @@ const App: React.FC = () => {
     setPayrollHistory([]);
     setAuditLogs([]);
     setLeaveRequests([]);
+    setIsInitializing(false);
+    setShowSkipButton(false);
   };
 
   const handleSaveSettings = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -640,6 +660,38 @@ const App: React.FC = () => {
         accept=".csv" 
         className="hidden" 
       />
+      
+      {/* Refined Loading Overlay with Skip Mechanism */}
+      {isInitializing && (
+        <div className="fixed inset-0 bg-white/80 backdrop-blur-md z-[999] flex flex-col items-center justify-center">
+          <div className="relative">
+            <Loader2 className="animate-spin text-blue-600 mb-6 relative z-10" size={64} />
+            <div className="absolute inset-0 bg-blue-100 rounded-full blur-2xl animate-pulse opacity-50"></div>
+          </div>
+          <p className="font-black text-2xl tracking-tight text-slate-800 animate-pulse mb-2">Syncing Data Ledger</p>
+          <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Optimizing Compliance Engine...</p>
+          
+          {showSkipButton && (
+            <button 
+              onClick={() => setIsInitializing(false)} 
+              className="mt-12 flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all animate-in fade-in slide-in-from-top-4"
+            >
+              <ChevronLast size={18} /> Skip Optimization & Enter Dashboard
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Global Processing Loader */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-[2px] z-[1000] flex items-center justify-center">
+          <div className="bg-white p-6 rounded-3xl shadow-2xl flex items-center gap-4 border border-slate-100 animate-in zoom-in-95">
+            <Loader2 className="animate-spin custom-theme-text" size={24} />
+            <span className="font-bold text-slate-700">Processing Request...</span>
+          </div>
+        </div>
+      )}
+
       <aside className="w-64 bg-slate-900 text-white flex flex-col no-print shrink-0 shadow-2xl">
         <div className="p-8">
           <h1 className="text-xl font-bold flex items-center gap-3 tracking-tight">
@@ -681,7 +733,6 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 overflow-y-auto relative">
-        {isLoading && <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center text-blue-600"><Loader2 className="animate-spin mb-4" size={48} /><p className="font-bold text-lg animate-pulse tracking-tight text-slate-700">Processing Entity Ledger...</p></div>}
         <div className="p-10 no-print max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -768,7 +819,6 @@ const App: React.FC = () => {
                   </button>
                 )}
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
                 <div className="lg:col-span-2 space-y-6">
                   <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -836,7 +886,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="space-y-8">
                   <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
                     <div className="absolute top-0 right-0 p-10 opacity-10 custom-theme-text"><PlaneTakeoff size={180} /></div>
@@ -844,7 +893,6 @@ const App: React.FC = () => {
                     <p className="text-slate-300 text-sm font-medium mb-8 relative leading-relaxed">
                       All personnel are entitled to annual leave as per the statutory requirements and company policy.
                     </p>
-                    
                     {user.role === 'staff' && selectedEmployee && (
                       <div className="space-y-6 relative">
                         <div className="flex justify-between items-end border-b border-white/10 pb-4">
@@ -863,7 +911,6 @@ const App: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
                     {user.role === 'admin' && (
                       <div className="space-y-4 relative">
                         <div className="p-6 bg-white/5 rounded-2xl border border-white/10">
@@ -886,7 +933,6 @@ const App: React.FC = () => {
                   <Palette className="custom-theme-text" /> Organization Branding
                 </h2>
               </div>
-              
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 <form onSubmit={handleSaveSettings} className="bg-white rounded-[40px] shadow-sm border border-slate-100 p-10 space-y-8">
                   <div className="space-y-6">
@@ -918,12 +964,10 @@ const App: React.FC = () => {
                       <textarea name="address" rows={2} required defaultValue={brandSettings.address} className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all resize-none" />
                     </div>
                   </div>
-                  
                   <button type="submit" className="w-full custom-theme-bg text-white font-black py-5 rounded-2xl shadow-xl transition-all hover:opacity-90 flex items-center justify-center gap-3 uppercase tracking-widest text-sm">
                     <Save size={18} /> Deploy Brand Settings
                   </button>
                 </form>
-
                 <div className="space-y-8">
                   <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Live Preview</h3>
                   <div className="bg-white rounded-[40px] border border-slate-200 overflow-hidden shadow-2xl scale-95 origin-top">
@@ -971,7 +1015,6 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </div>
-              
               <div className="space-y-6">
                 <div className="flex gap-3 bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
                   <div className="p-3"><Search className="text-slate-400" size={20} /></div>
@@ -1078,11 +1121,9 @@ const App: React.FC = () => {
                   <button onClick={processPayrollRun} className="custom-theme-bg text-white px-12 py-5 rounded-2xl font-black text-lg hover:opacity-90 shadow-2xl transition-all uppercase tracking-widest">Process & Commit to DB</button>
                 </div>
               </div>
-
               <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
                   <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><History className="custom-theme-text" /> Payroll History</h3>
-                  
                   <div className="flex flex-wrap items-center gap-4">
                     <button onClick={handleExportPayroll} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-2xl flex items-center gap-2 hover:bg-slate-50 shadow-sm transition-all font-bold text-xs">
                       <Download size={16} /> Export Data
@@ -1100,7 +1141,6 @@ const App: React.FC = () => {
                         ))}
                       </select>
                     </div>
-
                     <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
                       <Filter size={16} className="text-slate-400" />
                       <select 
@@ -1112,7 +1152,6 @@ const App: React.FC = () => {
                         {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                       </select>
                     </div>
-
                     <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
                       <UserIcon size={16} className="text-slate-400" />
                       <select 
@@ -1128,7 +1167,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
@@ -1290,7 +1328,6 @@ const App: React.FC = () => {
                 </div>
                 <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={28} /></button>
               </div>
-              
               <div className="flex-1 overflow-y-auto p-10 space-y-8 bg-slate-50/50">
                 <section className="grid grid-cols-2 gap-6">
                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
@@ -1313,7 +1350,6 @@ const App: React.FC = () => {
                       </div>
                    </div>
                 </section>
-
                 <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                    <div className="flex justify-between items-center mb-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PlaneTakeoff size={12}/> Annual Leave Entitlement</h4>
@@ -1333,7 +1369,6 @@ const App: React.FC = () => {
                       </div>
                    </div>
                 </section>
-                
                 <section className="space-y-4">
                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1">
                       <BrainCircuit size={14} className="custom-theme-text" /> AI Intelligence Service
@@ -1352,7 +1387,6 @@ const App: React.FC = () => {
                         P9 Audit
                      </button>
                    </div>
-                   
                    {(aiInsight || taxOptimizationAdvice || p9Breakdown) && (
                      <div className="space-y-4 pt-2 animate-in slide-in-from-top-2 duration-300">
                         {aiInsight && (
@@ -1376,7 +1410,6 @@ const App: React.FC = () => {
                    )}
                 </section>
               </div>
-
               <div className="p-8 border-t border-slate-100 bg-white flex gap-4 shrink-0">
                 <button onClick={() => { setShowPayslipModal(true); setShowDetailModal(false); }} className="flex-1 bg-slate-900 text-white font-black py-4 rounded-2xl hover:opacity-90 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
                    <FileIcon size={16} /> View Latest Payslip
@@ -1498,6 +1531,7 @@ const App: React.FC = () => {
                   joinedDate: editingEmployee ? editingEmployee.joinedDate : new Date().toISOString()
                 };
                 try {
+                  setIsLoading(true);
                   if (editingEmployee) {
                     const updated = await apiService.updateEmployee(emp);
                     setEmployees(prev => prev.map(item => item.id === updated.id ? updated : item));
@@ -1508,7 +1542,7 @@ const App: React.FC = () => {
                   }
                   setShowAddEmployee(false);
                   setEditingEmployee(null);
-                } catch (err) { alert("Error processing personnel record."); }
+                } catch (err) { alert("Error processing personnel record."); } finally { setIsLoading(false); }
               }} className="p-10 grid grid-cols-2 gap-8 bg-white overflow-y-auto max-h-[70vh]">
                 <FormField label="First Name" name="firstName" required defaultValue={editingEmployee?.firstName} />
                 <FormField label="Last Name" name="lastName" required defaultValue={editingEmployee?.lastName} />

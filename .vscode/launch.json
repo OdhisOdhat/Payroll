@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        
+
+        {
+            "name": "Launch Chrome",
+            "request": "launch",
+            "type": "chrome",
+            "url": "http://localhost:8080",
+            "webRoot": "${workspaceFolder}"
+        },
+        {
+            "type": "msedge",
+            "name": "http://127.0.0.1:3000/dist/public/index.html",
+            "request": "launch",
+            "url": "http://127.0.0.1:3000/dist/public/index.html"
+        }
+    ]
+}
