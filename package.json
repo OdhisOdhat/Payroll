@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node dist/server.js",
-    "build": "tsc && vite build",
-    "build:backend-only": "tsc",
+    "build": "vite build",
+    "build:all": "tsc && vite build",
     "dev": "tsx watch server.ts",
     "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -25,23 +25,27 @@
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^1.38.0",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "lucide-react": "^0.460.0",
+    "pg": "^8.11.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "pg": "^8.11.3",
-    "dotenv": "^16.4.5",
-    "vite": "^5.4.8",
-    "@vitejs/plugin-react": "^4.3.1"
+    "vite": "^5.4.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.0.0",
-    "@types/pg": "^8.11.0",
+    "@types/node": "^20.14.9",
+    "@types/pg": "^8.11.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
