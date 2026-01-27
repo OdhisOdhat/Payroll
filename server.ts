@@ -1,4 +1,4 @@
-import 'dotenv/config'; 
+import 'dotenv/config';
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
@@ -10,12 +10,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- 1. DATABASE CONFIGURATION ---
+// We use POSTGRES_URL_NON_POOLING as identified from your Vercel Dashboard.
+// 'ssl' is required for Supabase cloud connections.
 const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || '127.0.0.1',
-  database: process.env.DB_NAME || 'payroll_db',
-  password: String(process.env.DB_PASSWORD || ''), 
-  port: Number(process.env.DB_PORT) || 5432,
+  connectionString: process.env.POSTGRES_URL_NON_POOLING,
+  ssl: {
+    rejectUnauthorized: false, 
+  }
 });
 
 const app = express();
@@ -25,11 +26,12 @@ app.use(express.json());
 app.use(cors());
 
 // --- 3. DATABASE CONNECTION TEST ---
+// In serverless, this will run and log to your Vercel 'Logs' tab during execution.
 pool.connect((err, client, release) => {
   if (err) {
     console.error('❌ Database connection failed:', err.message);
   } else {
-    console.log('✅ Database connected successfully');
+    console.log('✅ Database connected successfully via POSTGRES_URL_NON_POOLING');
     release();
   }
 });
@@ -38,7 +40,6 @@ pool.connect((err, client, release) => {
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   
-  // Admin Bypass Credentials
   if (email === "admin@payroll.com" && password === "password123") {
     return res.json({
       success: true,
@@ -49,25 +50,37 @@ app.post('/api/login', (req, res) => {
   res.status(401).json({ success: false, message: "Invalid credentials" });
 });
 
-// --- 5. UPDATED STATIC & CATCH-ALL LOGIC ---
+// Example endpoint to check your Supabase tables
+app.get('/api/employees', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM employees');
+    res.json(rows);
+  } catch (err: any) {
+    console.error('Query Error:', err.message);
+    res.status(500).json({ error: 'Database query failed' });
+  }
+});
 
-// Serve the 'dist' folder directly
+// --- 5. STATIC ASSETS & SPA ROUTING ---
+// Serve frontend files from the 'dist' directory created by Vite
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// The correct way to serve your index.html in Express v5
-app.get('/*splat', (req, res) => {
-  // If the request is for a specific file (contains a dot) and 
-  // express.static missed it, return 404 instead of index.html.
-  // This prevents the "MIME type" error (index.html being sent as JS).
+app.get('/*', (req, res) => {
+  // Prevent returning index.html for missing images/scripts (avoids MIME errors)
   if (req.path.includes('.')) {
     return res.status(404).send('File not found');
   }
   res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
 });
 
-// --- 6. START SERVER ---
-const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 PayrollPro Engine active on port ${PORT}`);
-  console.log(`🔗 Access at http://localhost:${PORT}`);
-});
+// --- 6. EXPORT & START ---
+// CRITICAL for Vercel: The app must be exported to be treated as a function.
+export default app;
+
+// Only start the server locally. Vercel manages the listening process in production.
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = 3001;
+  app.listen(PORT, () => {
+    console.log(`🚀 Local dev server active on port ${PORT}`);
+  });
+}
