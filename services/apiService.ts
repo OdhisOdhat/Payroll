@@ -1,3 +1,4 @@
+
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from '../types';
 
 const API_BASE = '/api';
@@ -164,6 +165,27 @@ export const apiService = {
         body: JSON.stringify(emp)
       });
       return await res.json();
+    } catch (e) { return emp; }
+  },
+
+  // Fix: Added missing updateEmployee method to sync with the backend PUT endpoint and local storage
+  async updateEmployee(emp: Employee): Promise<Employee> {
+    if (this.isLocalMode) {
+      const emps = localStore.getEmployees();
+      const index = emps.findIndex(e => e.id === emp.id);
+      if (index !== -1) {
+        emps[index] = emp;
+        localStore.setEmployees(emps);
+      }
+      return emp;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/employees/${emp.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emp)
+      });
+      return res.ok ? await res.json() : emp;
     } catch (e) { return emp; }
   },
 

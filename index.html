@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PayrollPro - Advanced Payroll Management</title>
+  <title>PayrollPro Kenya - Advanced Enterprise Payroll</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script>
     // Polyfill process for browser environment to support process.env.API_KEY
     (function() {
@@ -16,7 +16,8 @@
   <style>
     body {
       font-family: 'Inter', sans-serif;
-      background-color: #f9fafb;
+      background-color: #f8fafc;
+      color: #0f172a;
     }
     @media print {
       .no-print {
@@ -28,20 +29,42 @@
       body {
         background-color: white;
       }
+      #root {
+        padding: 0 !important;
+      }
     }
     :root {
       --primary-color: #2563eb;
-      --primary-color-light: #2563eb20;
+      --primary-color-light: #eff6ff;
     }
-    .animate-spin-slow {
-      animation: spin 3s linear infinite;
+    
+    /* Custom scrollbar for a premium look */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
     }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    .custom-theme-bg { background-color: var(--primary-color); }
+    .custom-theme-text { color: var(--primary-color); }
+    .custom-theme-border { border-color: var(--primary-color); }
+    
+    .glass-effect {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
     }
   </style>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@19.0.0",
@@ -49,8 +72,8 @@
     "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
     "@google/genai": "https://esm.sh/@google/genai@1.38.0",
     "lucide-react": "https://esm.sh/lucide-react@0.460.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
     "express": "https://esm.sh/express@^5.2.1",
     "pg": "https://esm.sh/pg@^8.17.2",
     "cors": "https://esm.sh/cors@^2.8.6",
@@ -60,10 +83,9 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body>
   <div id="root"></div>
-<script type="module" src="/index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
 </body>
 </html>

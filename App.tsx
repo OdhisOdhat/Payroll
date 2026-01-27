@@ -11,7 +11,6 @@ import {
   LogOut,
   ChevronRight,
   Printer,
-  Database,
   Loader2,
   Lock,
   Mail,
@@ -25,7 +24,6 @@ import {
   Lightbulb,
   Scale,
   Building2,
-  Download,
   X,
   ChevronLast,
   History,
@@ -36,8 +34,6 @@ import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveReques
 import { calculatePayroll } from './utils/calculations';
 import { geminiService } from './services/geminiService';
 import { apiService } from './services/apiService';
-import { downloadCSV } from './utils/exportUtils';
-import { parseEmployeeCSV } from './utils/importUtils';
 import Payslip from './components/Payslip';
 import P9Form from './components/P9Form';
 
@@ -57,7 +53,6 @@ const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [showSkipButton, setShowSkipButton] = useState(false);
   
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showLeaveRequestModal, setShowLeaveRequestModal] = useState(false);
@@ -74,8 +69,6 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--primary-color', brandSettings.primaryColor);
@@ -87,9 +80,6 @@ const App: React.FC = () => {
       setIsInitializing(false);
       return;
     }
-    
-    const skipTimer = setTimeout(() => setShowSkipButton(true), 2500);
-    const hardLimitTimer = setTimeout(() => setIsInitializing(false), 5000);
     
     const loadInitialData = async () => {
       try {
@@ -118,16 +108,9 @@ const App: React.FC = () => {
         console.error("Initialization Error:", error);
       } finally {
         setIsInitializing(false);
-        clearTimeout(skipTimer);
-        clearTimeout(hardLimitTimer);
       }
     };
     loadInitialData();
-    
-    return () => {
-      clearTimeout(skipTimer);
-      clearTimeout(hardLimitTimer);
-    };
   }, [user]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -141,7 +124,6 @@ const App: React.FC = () => {
     try {
       const loggedInUser = await apiService.login(email, password);
       setUser(loggedInUser);
-      // Reset view to dashboard on successful login
       setActiveTab('dashboard'); 
     } catch (err: any) {
       setAuthError(err.message);
@@ -157,7 +139,6 @@ const App: React.FC = () => {
     setPayrollHistory([]);
     setAuditLogs([]);
     setLeaveRequests([]);
-    setIsInitializing(false);
   };
 
   const accessibleEmployees = useMemo(() => {
@@ -348,14 +329,6 @@ const App: React.FC = () => {
           </div>
           <h2 className="font-black text-3xl text-slate-800 mb-2 tracking-tight">Syncing Global Ledger...</h2>
           <p className="text-slate-400 text-sm font-medium">Validating compliance tokens and encrypted personnel data</p>
-          {showSkipButton && (
-            <button 
-              onClick={() => setIsInitializing(false)} 
-              className="mt-16 flex items-center gap-3 px-10 py-5 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 hover:-translate-y-1 transition-all active:translate-y-0"
-            >
-              <ChevronLast size={18} /> Bypass Optimization
-            </button>
-          )}
         </div>
       )}
 
@@ -436,7 +409,7 @@ const App: React.FC = () => {
             <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
               <div className="flex justify-between items-end">
                 <div>
-                  <h2 className="text-5xl font-black text-slate-800 tracking-tight leading-tight">{(user.role === 'admin' || user.role === 'tax' || user.role === 'manager') ? 'Organization Pulse' : `Welcome, ${user.firstName}`}</h2>
+                  <h2 className="text-5xl font-black text-slate-800 tracking-tight leading-tight">{(user.role !== 'staff') ? 'Organization Pulse' : `Welcome, ${user.firstName}`}</h2>
                   <div className="flex items-center gap-4 mt-6">
                     <div className={`px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.15em] flex items-center gap-3 border shadow-sm ${dbStatus === 'online' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                       {dbStatus === 'online' ? <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> : <div className="w-2 h-2 rounded-full bg-amber-500"></div>}
@@ -444,7 +417,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                {(user.role === 'admin' || user.role === 'tax' || user.role === 'manager') && (
+                {(user.role !== 'staff') && (
                   <div className="glass-effect px-10 py-6 rounded-[36px] shadow-sm border border-slate-200 flex items-center gap-6">
                     <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-black text-xl shadow-inner">KES</div>
                     <div>
@@ -462,7 +435,7 @@ const App: React.FC = () => {
                 <StatCard title="Housing Levy" value={stats.totalHousing} color="text-indigo-600" bgColor="bg-indigo-50" icon={<Building2 size={20}/>} />
               </div>
               
-              {(user.role === 'admin' || user.role === 'tax' || user.role === 'manager') && (
+              {(user.role !== 'staff') && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-center mb-10">
@@ -640,7 +613,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {activeTab === 'reports' && (user.role === 'admin' || user.role === 'tax' || user.role === 'manager') && (
+          {activeTab === 'reports' && (user.role !== 'staff') && (
             <div className="space-y-12 animate-in fade-in duration-700">
                <div className="flex justify-between items-center">
                  <h2 className="text-4xl font-black text-slate-800 tracking-tight">Compliance & Reporting</h2>
@@ -802,7 +775,7 @@ const App: React.FC = () => {
                   basicSalary: parseFloat(fd.get('basicSalary') as string) || 0,
                   benefits: parseFloat(fd.get('benefits') as string) || 0,
                   totalLeaveDays: parseInt(fd.get('totalLeaveDays') as string) || 21,
-                  remainingLeaveDays: editingEmployee ? editingEmployee.remainingLeaveDays : 21,
+                  remainingLeaveDays: editingEmployee ? editingEmployee.remainingLeaveDays : (parseInt(fd.get('totalLeaveDays') as string) || 21),
                   joinedDate: editingEmployee ? editingEmployee.joinedDate : new Date().toISOString()
                 };
                 setIsLoading(true);
