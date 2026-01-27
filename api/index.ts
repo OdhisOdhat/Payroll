@@ -13,7 +13,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Use underscore _ to tell TS we are intentionally not using 'client'
+// FIXED: Using _ underscore to tell TypeScript 'client' is intentionally unused
 pool.connect((err, _client, release) => {
   if (err) {
     console.error('❌ Database connection failed:', err.message);
@@ -23,7 +23,7 @@ pool.connect((err, _client, release) => {
   }
 });
 
-// Explicitly define 'any' or 'void' return to fix TS7030
+// FIXED: Added return statements to all paths and explicit :any return type
 app.post('/api/login', (req: Request, res: Response): any => {
   const { email, password } = req.body;
   
@@ -35,10 +35,10 @@ app.post('/api/login', (req: Request, res: Response): any => {
     });
   }
   
-  // Added mandatory return for failed path
   return res.status(401).json({ success: false, message: "Invalid credentials" });
 });
 
+// FIXED: Standardized error handling for the employees route
 app.get('/api/employees', async (_req: Request, res: Response): Promise<any> => {
   try {
     const { rows } = await pool.query('SELECT * FROM employees');
