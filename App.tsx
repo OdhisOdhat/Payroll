@@ -703,23 +703,51 @@ const App: React.FC = () => {
             <span className="truncate">{brandSettings.entityName}</span>
           </h1>
         </div>
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
-          <NavItem icon={<LayoutDashboard size={20}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          {user.role === 'admin' && (
-            <>
-              <NavItem icon={<Users size={20}/>} label="Personnel" active={activeTab === 'employees'} onClick={() => setActiveTab('employees')} />
-              <NavItem icon={<Receipt size={20}/>} label="Monthly Run" active={activeTab === 'payroll'} onClick={() => setActiveTab('payroll')} />
-            </>
-          )}
-          <NavItem icon={<PlaneTakeoff size={20}/>} label="Leave Requests" active={activeTab === 'leave'} onClick={() => setActiveTab('leave')} />
-          {(user.role === 'admin' || user.role === 'tax') && (
-            <NavItem icon={<FileText size={20}/>} label={user.role === 'admin' ? "Reports & Compliance" : "Compliance Hub"} active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
-          )}
-          {user.role === 'admin' && (
-            <NavItem icon={<Settings size={20}/>} label="Entity Branding" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-          )}
-          {user.role === 'staff' && <NavItem icon={<FileText size={20}/>} label="My Documents" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />}
-        </nav>
+        // Inside your App.tsx return statement, find the <aside> navigation:
+
+<nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+  <NavItem 
+    icon={<LayoutDashboard size={20}/>} 
+    label="Dashboard" 
+    active={activeTab === 'dashboard'} 
+    onClick={() => setActiveTab('dashboard')} 
+  />
+  
+  {/* MANAGERS and ADMINS can see Personnel and Payroll */}
+  {(user.role === 'admin' || user.role === 'manager') && (
+    <>
+      <NavItem 
+        icon={<Users size={20}/>} 
+        label="Personnel" 
+        active={activeTab === 'employees'} 
+        onClick={() => setActiveTab('employees')} 
+      />
+      <NavItem 
+        icon={<Receipt size={20}/>} 
+        label="Monthly Run" 
+        active={activeTab === 'payroll'} 
+        onClick={() => setActiveTab('payroll')} 
+      />
+    </>
+  )}
+
+  <NavItem 
+    icon={<PlaneTakeoff size={20}/>} 
+    label="Leave Requests" 
+    active={activeTab === 'leave'} 
+    onClick={() => setActiveTab('leave')} 
+  />
+
+  {/* ONLY ADMINS can see Settings/Branding */}
+  {user.role === 'admin' && (
+    <NavItem 
+      icon={<Settings size={20}/>} 
+      label="Entity Branding" 
+      active={activeTab === 'settings'} 
+      onClick={() => setActiveTab('settings')} 
+    />
+  )}
+</nav>
         <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/20">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center"><UserIcon size={20} /></div>
