@@ -1,5 +1,4 @@
-
-export type UserRole = 'admin' | 'staff' | 'tax';
+export type UserRole = 'admin' | 'staff' | 'tax' | 'manager';
 
 export interface User {
   id: string;
@@ -12,6 +11,7 @@ export interface User {
 
 export interface Employee {
   id: string;
+  payrollNumber: string; // Unique employee payroll/staff number
   firstName: string;
   lastName: string;
   email: string;
@@ -40,6 +40,7 @@ export interface LeaveRequest {
 export interface PayrollRecord {
   id: string;
   employeeId: string;
+  payrollRef: string; // Reference number associated with the specific month/run
   month: number; // 0-11
   year: number;
   grossSalary: number;

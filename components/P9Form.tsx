@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Employee, PayrollRecord, BrandSettings } from '../types';
 
@@ -57,6 +56,7 @@ const P9Form: React.FC<Props> = ({ employee, records, brand }) => {
         <div>
           <div>Employee's Name: <span className="font-bold underline">{employee.lastName}, {employee.firstName}</span></div>
           <div>Employee's PIN: <span className="font-bold underline">{employee.kraPin}</span></div>
+          <div>Payroll Number: <span className="font-bold underline">{employee.payrollNumber}</span></div>
         </div>
       </div>
 
@@ -104,7 +104,7 @@ const P9Form: React.FC<Props> = ({ employee, records, brand }) => {
           </tr>
         </tbody>
       </table>
-
+      {/* ... (Existing certification footer) */}
       <div className="mt-8 grid grid-cols-2 gap-8 border p-4">
         <div>
           <h4 className="font-bold underline mb-2">EMPLOYER CERTIFICATION</h4>

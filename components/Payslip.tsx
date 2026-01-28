@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Employee, PayrollRecord, BrandSettings } from '../types';
 
@@ -32,6 +31,10 @@ const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
       <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
         <div className="space-y-2">
           <div className="flex justify-between border-b pb-1">
+            <span className="text-slate-400 text-xs">Payroll No:</span> 
+            <span className="font-black text-xs custom-theme-text">{employee.payrollNumber}</span>
+          </div>
+          <div className="flex justify-between border-b pb-1">
             <span className="text-slate-400 text-xs">Employee:</span> 
             <span className="font-semibold text-xs">
               {employee.firstName} {employee.lastName} 
@@ -45,6 +48,7 @@ const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
         <div className="space-y-2">
           <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">NSSF Number:</span> <span className="font-semibold text-xs">{employee.nssfNumber}</span></div>
           <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">SHA Number:</span> <span className="font-semibold text-xs">{employee.nhifNumber}</span></div>
+          <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">Period Ref:</span> <span className="font-bold text-[9px] uppercase">{record.payrollRef}</span></div>
         </div>
       </div>
 
@@ -75,7 +79,7 @@ const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
             <div className="text-2xl font-black">KES {record.netSalary.toLocaleString()}</div>
           </div>
           <div className="text-right text-[10px] opacity-60 font-bold">
-            Ref: PAY-{record.id.slice(0, 6).toUpperCase()}<br/>
+            Run ID: {record.id.slice(0, 8).toUpperCase()}<br/>
             Processed: {new Date(record.processedAt).toLocaleDateString()}
           </div>
         </div>

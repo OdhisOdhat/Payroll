@@ -1,4 +1,3 @@
-
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from '../types';
 
 const API_BASE = '/api';
@@ -168,7 +167,6 @@ export const apiService = {
     } catch (e) { return emp; }
   },
 
-  // Fix: Added missing updateEmployee method to sync with the backend PUT endpoint and local storage
   async updateEmployee(emp: Employee): Promise<Employee> {
     if (this.isLocalMode) {
       const emps = localStore.getEmployees();

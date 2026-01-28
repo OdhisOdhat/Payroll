@@ -1,64 +1,84 @@
 import { TAX_CONSTANTS } from '../constants';
 import { PayrollRecord } from '../types';
 
-export const calculatePayroll = (basicSalary: number, benefits: number = 0): Omit<PayrollRecord, 'id' | 'employeeId' | 'month' | 'year' | 'processedAt'> => {
+/**
+ * Calculates Kenyan payroll deductions correctly
+ * per Income Tax Act (Cap 470) and statutory levies.
+ */
+export const calculatePayroll = (
+  basicSalary: number,
+  benefits: number = 0
+): Omit<
+  PayrollRecord,
+  'id' | 'employeeId' | 'month' | 'year' | 'processedAt' | 'payrollRef'
+> => {
+  /** 1. Gross taxable pay */
   const grossSalary = basicSalary + benefits;
 
-  // 1. NSSF Calculation (Total 6% capped at Tier levels)
-  // Tier I: 6% of pensionable earnings up to 7,000 (Max 420)
-  // Tier II: 6% of earnings above 7,000 up to 36,000 (Max 1,740)
+  /** 2. PAYE – calculated on GROSS (not reduced by NSSF) */
+  let tax = 0;
+
+  // Band 1: First 24,000 @ 10%
+  tax += Math.min(grossSalary, 24000) * 0.10;
+
+  // Band 2: Next 8,333 @ 25%
+  tax += Math.min(
+    Math.max(grossSalary - 24000, 0),
+    8333
+  ) * 0.25;
+
+  // Band 3: Next 467,667 @ 30%
+  tax += Math.min(
+    Math.max(grossSalary - 32333, 0),
+    467667
+  ) * 0.30;
+
+  // Band 4: Next 300,000 @ 32.5%
+  tax += Math.min(
+    Math.max(grossSalary - 500000, 0),
+    300000
+  ) * 0.325;
+
+  // Band 5: Above 800,000 @ 35%
+  tax += Math.max(grossSalary - 800000, 0) * 0.35;
+
+  /** 3. Personal Relief (fixed) */
+  const personalRelief = TAX_CONSTANTS.PERSONAL_RELIEF; // 2,400
+  const paye = Math.max(0, tax - personalRelief);
+
+  /** 4. NSSF – employee contribution (post-tax deduction) */
   let nssf = 0;
   if (grossSalary > 0) {
-    const tierI = Math.min(grossSalary * 0.06, TAX_CONSTANTS.NSSF_TIER_I_MAX);
-    const tierII = Math.min(Math.max(0, Math.min(grossSalary, 36000) - 7000) * 0.06, TAX_CONSTANTS.NSSF_TIER_II_MAX);
+    const tierI = Math.min(7000 * 0.06, TAX_CONSTANTS.NSSF_TIER_I_MAX);
+    const tierIIBand = Math.max(
+      Math.min(grossSalary, 36000) - 7000,
+      0
+    );
+    const tierII = Math.min(
+      tierIIBand * 0.06,
+      TAX_CONSTANTS.NSSF_TIER_II_MAX
+    );
     nssf = tierI + tierII;
   }
 
-  // 2. Taxable Income (NSSF is tax-deductible in Kenya)
-  const taxableIncome = Math.max(0, grossSalary - nssf);
+  /** 5. Statutory levies (on gross) */
+  const housingLevy = grossSalary * TAX_CONSTANTS.HOUSING_LEVY_RATE; // 1.5%
+  const sha = grossSalary * TAX_CONSTANTS.SHA_RATE; // 2.75%
 
-  // 3. PAYE Calculation
-  let remainingIncome = taxableIncome;
-  let payeBeforeRelief = 0;
-  
-  for (const bracket of TAX_CONSTANTS.PAYE_BRACKETS) {
-    const chunk = Math.min(remainingIncome, bracket.limit);
-    payeBeforeRelief += chunk * bracket.rate;
-    remainingIncome -= chunk;
-    if (remainingIncome <= 0) break;
-  }
-
-  // 4. Affordable Housing Levy (1.5% of Gross) - Not tax deductible
-  const housingLevy = grossSalary * TAX_CONSTANTS.HOUSING_LEVY_RATE;
-
-  // 5. SHA (Social Health Authority - 2.75% of Gross)
-  const sha = grossSalary * TAX_CONSTANTS.SHA_RATE;
-
-  // 6. Reliefs
-  // Personal Relief (2,400)
-  // Insurance Relief (15% of SHA/NHIF contributions)
-  const insuranceRelief = sha * TAX_CONSTANTS.INSURANCE_RELIEF_PERCENT;
-  const totalRelief = TAX_CONSTANTS.PERSONAL_RELIEF + insuranceRelief;
-  
-  const paye = Math.max(0, payeBeforeRelief - totalRelief);
-
-  // 7. NITA (Industrial Training Levy - employer cost, but shown for compliance)
-  const nita = TAX_CONSTANTS.NITA_LEVY;
-
-  // 8. Net Salary
-  // Net = Gross - NSSF - PAYE - Housing Levy - SHA
-  const netSalary = grossSalary - nssf - paye - housingLevy - sha;
+  /** 6. Net salary */
+  const netSalary =
+    grossSalary - paye - nssf - housingLevy - sha;
 
   return {
     grossSalary,
     benefits,
-    nssf,
-    taxableIncome,
+    taxableIncome: grossSalary,
     paye,
-    personalRelief: TAX_CONSTANTS.PERSONAL_RELIEF,
+    personalRelief,
+    nssf,
     housingLevy,
     sha,
-    nita,
+    nita: TAX_CONSTANTS.NITA_LEVY,
     netSalary
   };
 };

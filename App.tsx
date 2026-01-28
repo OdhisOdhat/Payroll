@@ -26,6 +26,7 @@ import {
   Share2,
   Send,
   X,
+  Menu,
   CheckCircle2,
   Sparkles,
   ShieldAlert,
@@ -99,6 +100,7 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoUploadRef = useRef<HTMLInputElement>(null);
@@ -121,6 +123,11 @@ const App: React.FC = () => {
   // Logo update state
   const [logoUrlInput, setLogoUrlInput] = useState('');
 
+  // Close mobile menu on tab change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [activeTab]);
+
   // Apply dynamic theme color
   useEffect(() => {
     document.documentElement.style.setProperty('--primary-color', brandSettings.primaryColor);
@@ -135,9 +142,7 @@ const App: React.FC = () => {
       return;
     }
     
-    // Safety timer to show skip button if initialization is slow
     const skipTimer = setTimeout(() => setShowSkipButton(true), 2500);
-    // Hard limit to force remove loading screen
     const hardLimitTimer = setTimeout(() => setIsInitializing(false), 6000);
     
     const loadInitialData = async () => {
@@ -146,7 +151,6 @@ const App: React.FC = () => {
         const isOnline = await apiService.checkBackend();
         setDbStatus(isOnline ? 'online' : 'local');
 
-        // Fetch data concurrently with individual catch blocks to prevent one failure blocking all
         const [empData, payrollData, auditData, brandData, leaveData] = await Promise.all([
           apiService.getEmployees().catch(() => []),
           apiService.getPayrollHistory().catch(() => []),
@@ -247,7 +251,6 @@ const App: React.FC = () => {
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
@@ -268,7 +271,8 @@ const App: React.FC = () => {
       emp.firstName.toLowerCase().includes(term) ||
       emp.lastName.toLowerCase().includes(term) ||
       emp.email.toLowerCase().includes(term) ||
-      emp.kraPin.toLowerCase().includes(term)
+      emp.kraPin.toLowerCase().includes(term) ||
+      emp.payrollNumber.toLowerCase().includes(term)
     );
   }, [accessibleEmployees, employeeSearchQuery]);
 
@@ -292,20 +296,11 @@ const App: React.FC = () => {
     };
   }, [accessiblePayroll]);
 
-  // Filtered & Sorted Payroll History
   const filteredPayroll = useMemo(() => {
     let result = [...accessiblePayroll];
-
-    if (payrollMonthFilter !== 'all') {
-      result = result.filter(r => r.month === parseInt(payrollMonthFilter));
-    }
-    if (payrollYearFilter !== 'all') {
-      result = result.filter(r => r.year === parseInt(payrollYearFilter));
-    }
-    if (payrollEmployeeFilter !== 'all') {
-      result = result.filter(r => r.employeeId === payrollEmployeeFilter);
-    }
-
+    if (payrollMonthFilter !== 'all') result = result.filter(r => r.month === parseInt(payrollMonthFilter));
+    if (payrollYearFilter !== 'all') result = result.filter(r => r.year === parseInt(payrollYearFilter));
+    if (payrollEmployeeFilter !== 'all') result = result.filter(r => r.employeeId === payrollEmployeeFilter);
     result.sort((a, b) => {
       let comparison = 0;
       if (payrollSortField === 'processedAt') {
@@ -315,7 +310,6 @@ const App: React.FC = () => {
       }
       return payrollSortDir === 'asc' ? comparison : -comparison;
     });
-
     return result;
   }, [accessiblePayroll, payrollMonthFilter, payrollYearFilter, payrollEmployeeFilter, payrollSortField, payrollSortDir]);
 
@@ -376,24 +370,18 @@ const App: React.FC = () => {
   const handleLeaveRequestSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user || !user.employeeId) return;
-    
     const formData = new FormData(e.currentTarget);
-    const startDate = formData.get('startDate') as string;
-    const endDate = formData.get('endDate') as string;
-    const reason = formData.get('reason') as string;
-
     const request: LeaveRequest = {
       id: Math.random().toString(36).substr(2, 9),
       employeeId: user.employeeId,
       firstName: user.firstName,
       lastName: user.lastName,
-      startDate,
-      endDate,
-      reason,
+      startDate: formData.get('startDate') as string,
+      endDate: formData.get('endDate') as string,
+      reason: formData.get('reason') as string,
       status: 'pending',
       requestedAt: new Date().toISOString()
     };
-
     try {
       setIsLoading(true);
       await apiService.submitLeaveRequest(request);
@@ -409,31 +397,24 @@ const App: React.FC = () => {
 
   const handleLeaveStatusUpdate = async (id: string, status: 'approved' | 'rejected', employeeId: string, startDate: string, endDate: string) => {
     if (!user) return;
-    
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
+    const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     try {
       setIsLoading(true);
       await apiService.updateLeaveStatus(id, status, employeeId, diffDays);
-      
       setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status } : l));
-      
       if (status === 'approved') {
         setEmployees(prev => prev.map(e => e.id === employeeId ? { ...e, remainingLeaveDays: e.remainingLeaveDays - diffDays } : e));
       }
-
       await apiService.saveAuditLog({
         id: Math.random().toString(36).substr(2, 9),
         performedBy: `${user.firstName} ${user.lastName}`,
         userRole: user.role,
         action: `Leave ${status.toUpperCase()}`,
-        details: `${status.charAt(0).toUpperCase() + status.slice(1)} leave for ${employeeId}. Duration: ${diffDays} days.`,
+        details: `${status.charAt(0).toUpperCase() + status.slice(1)} leave for ${employeeId}.`,
         timestamp: new Date().toISOString()
       });
-      
       alert(`Leave request ${status}.`);
     } catch (error) {
       alert("Failed to update leave request.");
@@ -442,216 +423,129 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDraftEmail = async () => {
-    if (!selectedEmployee) return;
-    setIsDraftingEmail(true);
-    try {
-      const draft = await geminiService.draftShareEmail(
-        selectedEmployee.firstName,
-        new Date().toLocaleString('default', { month: 'long' }),
-        new Date().getFullYear()
-      );
-      setShareMessage(draft || '');
-    } catch (error) {
-      console.error("Draft Error:", error);
-    } finally {
-      setIsDraftingEmail(false);
-    }
-  };
-
-  const handleShareSubmit = async () => {
-    if (!selectedEmployee || !shareEmail || !user) return;
-    setIsSharing(true);
-    try {
-      const recordId = accessiblePayroll.find(p => p.employeeId === selectedEmployee.id)?.id || 'LATEST';
-      await apiService.sharePayslip(shareEmail, selectedEmployee.id, recordId, shareMessage);
-      
-      await apiService.saveAuditLog({
-        id: Math.random().toString(36).substr(2, 9),
-        performedBy: `${user.firstName} ${user.lastName}`,
-        userRole: user.role,
-        action: 'Payslip Shared',
-        details: `Shared payslip for ${selectedEmployee.firstName} ${selectedEmployee.lastName} with ${shareEmail}.`,
-        timestamp: new Date().toISOString()
-      });
-
-      setShareSuccess(true);
-      setTimeout(() => {
-        setShowShareModal(false);
-        setShareSuccess(false);
-        setShareEmail('');
-        setShareMessage('');
-      }, 2000);
-    } catch (error) {
-      alert("Failed to share payslip.");
-    } finally {
-      setIsSharing(false);
-    }
-  };
-
   const processPayrollRun = async () => {
     if (!user) return;
     setIsLoading(true);
     const now = new Date();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+    const monthName = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][month];
+    
+    // Generate a run reference (e.g., PAY-OCT-2024-KRA)
+    const runRef = `PAY-${monthName}-${year}-${brandSettings.entityName.substring(0, 3).toUpperCase()}`;
+
     const newRecords: PayrollRecord[] = accessibleEmployees.map(emp => ({
       ...calculatePayroll(emp.basicSalary, emp.benefits),
       id: Math.random().toString(36).substr(2, 9),
       employeeId: emp.id,
-      month: now.getMonth(),
-      year: now.getFullYear(),
+      payrollRef: runRef,
+      month,
+      year,
       processedAt: now.toISOString()
     }));
-
     try {
       await apiService.savePayrollRun(newRecords);
-      
-      const auditLog: PayrollAudit = {
-        id: Math.random().toString(36).substr(2, 9),
-        performedBy: `${user.firstName} ${user.lastName}`,
-        userRole: user.role,
-        action: 'Payroll Run Committed',
-        details: `Processed payroll for ${newRecords.length} employees.`,
-        timestamp: now.toISOString()
-      };
-      await apiService.saveAuditLog(auditLog);
-      
       setPayrollHistory(prev => [...newRecords, ...prev]);
-      setAuditLogs(prev => [auditLog, ...prev]);
-      alert(`Processed ${accessibleEmployees.length} records. Notifications have been sent.`);
-    } catch (err) {
-      alert("Error committing payroll run.");
-    } finally {
-      setIsLoading(false);
-    }
+      alert(`Processed ${newRecords.length} records. Batch Ref: ${runRef}`);
+    } catch (err) { alert("Error."); } finally { setIsLoading(false); }
   };
 
-  const toggleSort = (field: 'processedAt' | 'netSalary') => {
-    if (payrollSortField === field) {
-      setPayrollSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
-    } else {
-      setPayrollSortField(field);
-      setPayrollSortDir('desc');
-    }
-  };
-
-  const handleExportEmployees = () => {
-    const filename = `Personnel_Roster_${new Date().toISOString().split('T')[0]}.csv`;
-    downloadCSV(accessibleEmployees, filename);
-  };
-
-  const handleExportPayroll = () => {
-    const filename = `Payroll_History_${new Date().toISOString().split('T')[0]}.csv`;
-    const dataToExport = filteredPayroll.map(record => {
-      const emp = employees.find(e => e.id === record.employeeId);
-      return {
-        ...record,
-        employeeName: emp ? `${emp.firstName} ${emp.lastName}` : 'N/A'
-      };
-    });
-    downloadCSV(dataToExport, filename);
-  };
-
-  const handleImportCSVClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleExportEmployees = () => downloadCSV(accessibleEmployees, `Employees_${new Date().toISOString()}.csv`);
+  const handleExportPayroll = () => downloadCSV(filteredPayroll, `Payroll_${new Date().toISOString()}.csv`);
+  const handleImportCSVClick = () => fileInputRef.current?.click();
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const text = e.target?.result as string;
-      const importedData = parseEmployeeCSV(text);
-      
-      if (importedData.length === 0) {
-        alert("No valid data found in CSV file.");
-        return;
-      }
-
+      const importedData = parseEmployeeCSV(e.target?.result as string);
+      if (importedData.length === 0) return alert("No valid data.");
       setIsLoading(true);
-      let successCount = 0;
-      let errorCount = 0;
-
       for (const entry of importedData) {
-        try {
-          if (!entry.firstName || !entry.lastName || !entry.email) {
-            errorCount++;
-            continue;
-          }
-          await apiService.saveEmployee(entry as Employee);
-          successCount++;
-        } catch (err) {
-          errorCount++;
-        }
+        try { await apiService.saveEmployee(entry as Employee); } catch (err) {}
       }
-
       setIsLoading(false);
-      alert(`Import complete: ${successCount} successful, ${errorCount} errors.`);
-      
-      const freshEmps = await apiService.getEmployees();
-      setEmployees(freshEmps);
-      
-      if (event.target) event.target.value = '';
+      setEmployees(await apiService.getEmployees());
     };
     reader.readAsText(file);
   };
 
+  const Sidebar = ({ isMobile = false }: { isMobile?: boolean }) => (
+    <div className={`h-full flex flex-col ${isMobile ? 'bg-slate-900 w-full' : 'bg-slate-900 w-64'}`}>
+      <div className="p-8">
+        <h1 className="text-xl font-bold flex items-center gap-3 tracking-tight text-white">
+          {brandSettings.logoUrl ? (
+            <img src={brandSettings.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
+          ) : (
+            <Receipt className="custom-theme-text" />
+          )} 
+          <span className="truncate">{brandSettings.entityName}</span>
+        </h1>
+      </div>
+      <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+        <NavItem icon={<LayoutDashboard size={20}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+        {(user?.role === 'admin' || user?.role === 'manager') && (
+          <>
+            <NavItem icon={<Users size={20}/>} label="Personnel" active={activeTab === 'employees'} onClick={() => setActiveTab('employees')} />
+            <NavItem icon={<Receipt size={20}/>} label="Monthly Run" active={activeTab === 'payroll'} onClick={() => setActiveTab('payroll')} />
+          </>
+        )}
+        <NavItem icon={<PlaneTakeoff size={20}/>} label="Leave Requests" active={activeTab === 'leave'} onClick={() => setActiveTab('leave')} />
+        {(user?.role === 'admin' || user?.role === 'tax' || user?.role === 'manager') && (
+          <NavItem icon={<FileText size={20}/>} label={user?.role === 'admin' || user?.role === 'manager' ? "Reports & Compliance" : "Compliance Hub"} active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
+        )}
+        {user?.role === 'admin' && (
+          <NavItem icon={<Settings size={20}/>} label="Branding" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        )}
+        {user?.role === 'staff' && <NavItem icon={<FileText size={20}/>} label="Documents" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />}
+      </nav>
+      <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/20 text-white">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0"><UserIcon size={20} /></div>
+          <div className="overflow-hidden">
+            <div className="text-sm font-black truncate">{user?.firstName} {user?.lastName}</div>
+            <div className="text-[10px] custom-theme-text font-black uppercase tracking-widest">{user?.role}</div>
+          </div>
+        </div>
+        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-900/20 text-slate-400 hover:text-red-400 py-3 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest"><LogOut size={14} /> Log Out</button>
+      </div>
+    </div>
+  );
+
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 selection:bg-blue-500/30">
-        <style>{`
-          :root {
-            --primary-color: ${brandSettings.primaryColor};
-            --primary-color-light: ${brandSettings.primaryColor}20;
-          }
-          .custom-theme-bg { background-color: var(--primary-color); }
-          .custom-theme-text { color: var(--primary-color); }
-          .custom-theme-border { border-color: var(--primary-color); }
-          .custom-theme-ring:focus { ring-color: var(--primary-color); }
-        `}</style>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 selection:bg-blue-500/30">
+        <style>{`:root { --primary-color: ${brandSettings.primaryColor}; } .custom-theme-bg { background-color: var(--primary-color); }`}</style>
         <div className="w-full max-w-md animate-in fade-in zoom-in-95 duration-700">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl custom-theme-bg shadow-2xl shadow-blue-500/20 mb-6 group hover:scale-105 transition-transform">
-              {brandSettings.logoUrl ? (
-                <img src={brandSettings.logoUrl} alt="Logo" className="w-12 h-12 object-contain" />
-              ) : (
-                <Receipt className="text-white group-hover:rotate-12 transition-transform" size={40} />
-              )}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-2xl md:rounded-3xl custom-theme-bg shadow-2xl mb-6">
+              {brandSettings.logoUrl ? <img src={brandSettings.logoUrl} className="w-10 h-10 object-contain" /> : <Receipt className="text-white" size={32} />}
             </div>
-            <h1 className="text-4xl font-black text-white tracking-tight mb-2">
-              {brandSettings.entityName.split(' ')[0]}<span className="custom-theme-text">{brandSettings.entityName.split(' ').slice(1).join(' ')}</span>
-            </h1>
-            <p className="text-slate-400 font-medium">Enterprise Management System v2.0</p>
+            <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">{brandSettings.entityName}</h1>
           </div>
-          <div className="bg-slate-900/50 border border-slate-800 backdrop-blur-xl p-10 rounded-[40px] shadow-2xl">
+          <div className="bg-slate-900/50 border border-slate-800 backdrop-blur-xl p-6 md:p-10 rounded-[30px] md:rounded-[40px] shadow-2xl">
             <form onSubmit={handleLogin} className="space-y-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Work Email</label>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Email</label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500 group-focus-within:custom-theme-text transition-colors">
-                    <Mail size={18} />
-                  </div>
-                  <input name="email" type="email" required placeholder="admin@payrollpro.com" className="w-full bg-slate-950/50 border-2 border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white placeholder:text-slate-600 focus:custom-theme-border focus:ring-4 ring-blue-500/10 outline-none transition-all font-bold" />
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500"><Mail size={18} /></div>
+                  <input name="email" type="email" required placeholder="admin@payrollpro.com" className="w-full bg-slate-950/50 border-2 border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:border-blue-500 transition-all font-bold" />
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Access Token</label>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Access Token</label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500 group-focus-within:custom-theme-text transition-colors">
-                    <Lock size={18} />
-                  </div>
-                  <input name="password" type="password" required placeholder="password123" className="w-full bg-slate-950/50 border-2 border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white placeholder:text-slate-600 focus:custom-theme-border focus:ring-4 ring-blue-500/10 outline-none transition-all font-bold" />
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500"><Lock size={18} /></div>
+                  <input name="password" type="password" required placeholder="password123" className="w-full bg-slate-950/50 border-2 border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white outline-none focus:border-blue-500 transition-all font-bold" />
                 </div>
               </div>
-              {authError && <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold animate-in shake duration-300">{authError}</div>}
-              <button type="submit" disabled={isLoggingIn} className="w-full custom-theme-bg hover:opacity-90 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-                {isLoggingIn ? <Loader2 className="animate-spin" size={20} /> : <ShieldCheck size={20} />}
-                {isLoggingIn ? 'Verifying...' : 'Authorize Access'}
+              {authError && <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold text-center">{authError}</div>}
+              <button type="submit" disabled={isLoggingIn} className="w-full custom-theme-bg hover:opacity-90 text-white font-black py-4 rounded-2xl transition-all disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+                {isLoggingIn ? <Loader2 className="animate-spin" size={20} /> : <ShieldCheck size={20} />} Authorize
               </button>
             </form>
           </div>
-          <div className="mt-8 text-center text-slate-600 text-[10px] font-bold uppercase tracking-widest">Restricted System. Unauthorized access is monitored.</div>
         </div>
       </div>
     );
@@ -659,170 +553,94 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <style>{`
-        :root {
-          --primary-color: ${brandSettings.primaryColor};
-          --primary-color-light: ${brandSettings.primaryColor}20;
-        }
-        .custom-theme-bg { background-color: var(--primary-color); }
-        .custom-theme-text { color: var(--primary-color); }
-        .custom-theme-border { border-color: var(--primary-color); }
-        .custom-theme-ring:focus { ring-color: var(--primary-color); }
-        .stat-card-blue { background-color: var(--primary-color-light); color: var(--primary-color); }
-      `}</style>
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        accept=".csv" 
-        className="hidden" 
-      />
+      <style>{`:root { --primary-color: ${brandSettings.primaryColor}; --primary-color-light: ${brandSettings.primaryColor}20; } .custom-theme-bg { background-color: var(--primary-color); } .custom-theme-text { color: var(--primary-color); } .custom-theme-border { border-color: var(--primary-color); }`}</style>
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
       
-      {/* Refined Loading Overlay with Skip Mechanism */}
-      {isInitializing && (
-        <div className="fixed inset-0 bg-white/80 backdrop-blur-md z-[999] flex flex-col items-center justify-center">
-          <div className="relative">
-            <Loader2 className="animate-spin text-blue-600 mb-6 relative z-10" size={64} />
-            <div className="absolute inset-0 bg-blue-100 rounded-full blur-2xl animate-pulse opacity-50"></div>
-          </div>
-          <p className="font-black text-2xl tracking-tight text-slate-800 animate-pulse mb-2">Syncing Data Ledger</p>
-          <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">Optimizing Compliance Engine...</p>
-          
-          {showSkipButton && (
-            <button 
-              onClick={() => setIsInitializing(false)} 
-              className="mt-12 flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all animate-in fade-in slide-in-from-top-4"
-            >
-              <ChevronLast size={18} /> Skip Optimization & Enter Dashboard
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Global Processing Loader */}
-      {isLoading && (
-        <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-[2px] z-[1000] flex items-center justify-center">
-          <div className="bg-white p-6 rounded-3xl shadow-2xl flex items-center gap-4 border border-slate-100 animate-in zoom-in-95">
-            <Loader2 className="animate-spin custom-theme-text" size={24} />
-            <span className="font-bold text-slate-700">Processing Request...</span>
+      {/* Mobile Sidebar Overlay */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-[1000] lg:hidden animate-in fade-in">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
+          <div className="absolute inset-y-0 left-0 w-[280px] bg-slate-900 shadow-2xl animate-in slide-in-from-left duration-300">
+            <Sidebar isMobile />
+            <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-6 right-[-50px] p-2 text-white bg-slate-900 rounded-full shadow-xl"><X size={24}/></button>
           </div>
         </div>
       )}
 
-      <aside className="w-64 bg-slate-900 text-white flex flex-col no-print shrink-0 shadow-2xl">
-        <div className="p-8">
-          <h1 className="text-xl font-bold flex items-center gap-3 tracking-tight">
-            {brandSettings.logoUrl ? (
-              <img src={brandSettings.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
-            ) : (
-              <Receipt className="custom-theme-text" />
-            )} 
-            <span className="truncate">{brandSettings.entityName}</span>
-          </h1>
-        </div>
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
-          <NavItem icon={<LayoutDashboard size={20}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          
-          {/* Managers and Admins share core operations */}
-          {(user.role === 'admin' || user.role === 'manager') && (
-            <>
-              <NavItem icon={<Users size={20}/>} label="Personnel" active={activeTab === 'employees'} onClick={() => setActiveTab('employees')} />
-              <NavItem icon={<Receipt size={20}/>} label="Monthly Run" active={activeTab === 'payroll'} onClick={() => setActiveTab('payroll')} />
-            </>
-          )}
-          
-          <NavItem icon={<PlaneTakeoff size={20}/>} label="Leave Requests" active={activeTab === 'leave'} onClick={() => setActiveTab('leave')} />
-          
-          {(user.role === 'admin' || user.role === 'tax' || user.role === 'manager') && (
-            <NavItem icon={<FileText size={20}/>} label={user.role === 'admin' || user.role === 'manager' ? "Reports & Compliance" : "Compliance Hub"} active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
-          )}
-          
-          {user.role === 'admin' && (
-            <NavItem icon={<Settings size={20}/>} label="Entity Branding" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-          )}
-          
-          {user.role === 'staff' && <NavItem icon={<FileText size={20}/>} label="My Documents" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />}
-        </nav>
-        <div className="px-6 py-6 border-t border-slate-800 bg-slate-950/20">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center"><UserIcon size={20} /></div>
-            <div className="overflow-hidden">
-              <div className="text-sm font-black truncate">{user.firstName} {user.lastName}</div>
-              <div className="text-[10px] custom-theme-text font-black uppercase tracking-widest">{user.role} Account</div>
-            </div>
-          </div>
-          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-900/20 text-slate-400 hover:text-red-400 py-3 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest"><LogOut size={14} /> Terminate Session</button>
-        </div>
+      {/* Desktop Sidebar */}
+      <aside className="hidden lg:flex flex-col no-print shrink-0 shadow-2xl bg-slate-900">
+        <Sidebar />
       </aside>
 
-      <main className="flex-1 overflow-y-auto relative">
-        <div className="p-10 no-print max-w-7xl mx-auto">
+      <main className="flex-1 overflow-y-auto relative flex flex-col h-full">
+        {/* Top Navbar for Mobile */}
+        <header className="lg:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 sticky top-0 z-[100] no-print">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 bg-slate-50 rounded-xl text-slate-600 active:bg-slate-100 transition-all"><Menu size={24} /></button>
+            <div className="font-black text-slate-800 tracking-tight text-sm truncate max-w-[150px]">{brandSettings.entityName}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`px-2 py-1 rounded-full text-[8px] font-black uppercase flex items-center gap-1 border ${dbStatus === 'online' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+              <Zap size={8} className={dbStatus === 'online' ? 'fill-emerald-600' : ''} /> {dbStatus === 'online' ? 'Online' : 'Local'}
+            </div>
+          </div>
+        </header>
+
+        <div className="p-4 md:p-10 no-print max-w-7xl mx-auto w-full">
           {activeTab === 'dashboard' && (
-            <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex justify-between items-end">
+            <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
                 <div>
-                  <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">{(user.role !== 'staff') ? 'Organization Pulse' : `Hello, ${user.firstName}`}</h2>
-                  <div className="flex items-center gap-3 mt-2">
-                    <p className="text-slate-500 text-lg">{(user.role !== 'staff') ? 'Real-time payroll distribution and compliance monitoring.' : 'Your personal earnings and tax summary.'}</p>
-                    <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border ${dbStatus === 'online' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                      {dbStatus === 'online' ? <Zap size={10} className="fill-emerald-600" /> : <Loader2 size={10} className="animate-spin" />}
-                      {dbStatus === 'online' ? 'Supabase Connected' : 'Local Fallback Mode'}
-                    </div>
-                  </div>
+                  <h2 className="text-2xl md:text-4xl font-extrabold text-slate-800 tracking-tight">{(user.role !== 'staff') ? 'Organization Pulse' : `Hello, ${user.firstName}`}</h2>
+                  <p className="text-slate-500 text-sm md:text-lg mt-1">{(user.role !== 'staff') ? 'Payroll and compliance monitoring.' : 'Personal earnings summary.'}</p>
                 </div>
-                {(user.role !== 'staff') && (
-                  <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4"><div className="stat-card-blue p-3 rounded-xl font-black">KES</div><div><div className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Total Liability</div><div className="text-2xl font-black text-slate-800">{stats.totalGross.toLocaleString()}</div></div></div>
+                {user.role !== 'staff' && (
+                  <div className="bg-white px-4 py-3 md:px-6 md:py-4 rounded-xl md:rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                    <div className="bg-blue-50 p-2 md:p-3 rounded-xl font-black text-blue-600 text-xs md:text-base">KES</div>
+                    <div><div className="text-[8px] md:text-[10px] text-slate-400 uppercase font-black">Gross Liability</div><div className="text-lg md:text-2xl font-black text-slate-800">{stats.totalGross.toLocaleString()}</div></div>
+                  </div>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                 <StatCard title="Income Tax (PAYE)" value={stats.totalPaye} color="text-red-600" bgColor="bg-red-50" icon={<Scale size={16}/>} />
-                <StatCard title="Social Security (NSSF)" value={stats.totalNssf} color="custom-theme-text" bgColor="bg-blue-50" icon={<ShieldCheck size={16}/>} />
-                <StatCard title="Health Levy (SHA)" value={stats.totalSha} color="text-emerald-600" bgColor="bg-emerald-50" icon={<Activity size={16}/>} />
+                <StatCard title="NSSF (Security)" value={stats.totalNssf} color="custom-theme-text" bgColor="bg-blue-50" icon={<ShieldCheck size={16}/>} />
+                <StatCard title="SHA (Health)" value={stats.totalSha} color="text-emerald-600" bgColor="bg-emerald-50" icon={<Activity size={16}/>} />
                 <StatCard title="Housing Levy" value={stats.totalHousing} color="text-violet-600" bgColor="bg-violet-50" icon={<Building2 size={16}/>} />
               </div>
 
               {(user.role !== 'staff') && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                   <div className="lg:col-span-2 bg-white rounded-3xl p-8 border border-slate-100 shadow-sm">
-                      <div className="flex items-center justify-between mb-8">
-                         <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><History className="custom-theme-text" /> System Audit Trail</h3>
-                         <button onClick={() => apiService.getAuditLogs().then(setAuditLogs)} className="text-[10px] font-black uppercase custom-theme-text bg-blue-50 px-4 py-2 rounded-xl hover:bg-blue-100 transition-all">Refresh Logs</button>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
+                   <div className="lg:col-span-2 bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 border border-slate-100 shadow-sm">
+                      <div className="flex items-center justify-between mb-6 md:mb-8">
+                         <h3 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2"><History className="custom-theme-text" /> Audit Ledger</h3>
+                         <button onClick={() => apiService.getAuditLogs().then(setAuditLogs)} className="text-[10px] font-black uppercase custom-theme-text bg-blue-50 px-3 py-2 rounded-lg">Refresh</button>
                       </div>
                       <div className="space-y-4">
                          {auditLogs.length > 0 ? auditLogs.slice(0, 5).map(log => (
-                           <div key={log.id} className="flex gap-4 p-4 rounded-2xl border border-slate-50 hover:bg-slate-50 transition-all group">
-                              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-100 group-hover:custom-theme-text transition-all shrink-0"><Activity size={18} /></div>
-                              <div className="flex-1">
+                           <div key={log.id} className="flex gap-3 md:gap-4 p-3 md:p-4 rounded-xl md:rounded-2xl border border-slate-50 hover:bg-slate-50 transition-all">
+                              <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0"><Activity size={16} /></div>
+                              <div className="flex-1 min-w-0">
                                  <div className="flex justify-between items-start mb-1">
-                                    <div className="font-bold text-sm text-slate-800">{log.action}</div>
-                                    <div className="text-[10px] text-slate-400 font-bold">{new Date(log.timestamp).toLocaleString()}</div>
+                                    <div className="font-bold text-xs md:text-sm text-slate-800 truncate pr-2">{log.action}</div>
+                                    <div className="text-[8px] md:text-[10px] text-slate-400 font-bold shrink-0">{new Date(log.timestamp).toLocaleDateString()}</div>
                                  </div>
-                                 <div className="text-xs text-slate-500 font-medium mb-1">{log.details}</div>
-                                 <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Initiated by {log.performedBy} ({log.userRole})</div>
+                                 <div className="text-[10px] md:text-xs text-slate-500 font-medium mb-1 line-clamp-1">{log.details}</div>
                               </div>
                            </div>
-                         )) : (
-                           <div className="py-12 text-center text-slate-400 font-bold italic">No audit records detected in ledger.</div>
-                         )}
+                         )) : <div className="py-12 text-center text-slate-400 font-bold italic">No records.</div>}
                       </div>
                    </div>
-                   <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
+                   <div className="bg-slate-900 rounded-2xl md:rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-2xl hidden md:block">
                       <div className="absolute top-0 right-0 p-10 opacity-10 custom-theme-text"><ShieldCheck size={180} /></div>
-                      <h3 className="text-xl font-bold mb-4 relative">Security Overview</h3>
-                      <p className="text-slate-300 text-sm font-medium mb-8 relative leading-relaxed">System activity is being logged in accordance with enterprise compliance standards. Personnel access is tiered based on verified role identities.</p>
-                      <div className="space-y-6 relative">
-                         <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full shadow-lg ${dbStatus === 'online' ? 'bg-emerald-400 shadow-emerald-400/50' : 'bg-amber-400 shadow-amber-400/50'}`}></div>
-                            <div className="text-xs font-black uppercase tracking-widest">{dbStatus === 'online' ? 'Supabase Sync Active' : 'Local Data Mode'}</div>
-                         </div>
-                         <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50`}></div>
-                            <div className="text-xs font-black uppercase tracking-widest">Audit Engine Encrypted</div>
-                         </div>
-                         <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50`}></div>
-                            <div className="text-xs font-black uppercase tracking-widest">SHA/NSSF Validated</div>
-                         </div>
+                      <h3 className="text-xl font-bold mb-4 relative">Security</h3>
+                      <p className="text-slate-300 text-sm font-medium mb-8 relative leading-relaxed">Encrypted audit trails and tiered RBAC systems ensure data integrity.</p>
+                      <div className="space-y-4 relative">
+                         {['Sync Active', 'Audit Encrypted', 'SHA Validated'].map(item => (
+                           <div key={item} className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
+                              <div className="text-[10px] font-black uppercase tracking-widest">{item}</div>
+                           </div>
+                         ))}
                       </div>
                    </div>
                 </div>
@@ -831,227 +649,57 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'leave' && (
-            <div className="space-y-10 animate-in fade-in slide-in-from-right-8 duration-500">
-              <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-                  <PlaneTakeoff className="custom-theme-text" /> Leave Management
-                </h2>
+            <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-right-8 duration-500">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <h2 className="text-2xl md:text-3xl font-black text-slate-800 flex items-center gap-3"><PlaneTakeoff className="custom-theme-text" /> Leave Management</h2>
                 {user.role === 'staff' && (
-                  <button onClick={() => setShowLeaveRequestModal(true)} className="custom-theme-bg text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:opacity-90 shadow-xl transition-all font-bold">
+                  <button onClick={() => setShowLeaveRequestModal(true)} className="custom-theme-bg text-white px-6 py-4 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 shadow-xl font-bold w-full md:w-auto">
                     <Plus size={20} /> Request Leave
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                      <h3 className="font-bold text-slate-700 uppercase tracking-widest text-xs flex items-center gap-2">
-                        <Clock className="text-slate-400" size={14} /> 
-                        {user.role === 'admin' || user.role === 'manager' ? 'Recent Applications' : 'My Requests'}
-                      </h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black tracking-widest">
-                            <th className="py-4 px-6">Personnel</th>
-                            <th className="py-4 px-6">Period</th>
-                            <th className="py-4 px-6">Reason</th>
-                            <th className="py-4 px-6">Status</th>
-                            {(user.role === 'admin' || user.role === 'manager') && <th className="py-4 px-6">Actions</th>}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
+                <div className="lg:col-span-2 bg-white rounded-2xl md:rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-700 uppercase tracking-widest text-xs">{user.role === 'admin' ? 'Recent Applications' : 'My Requests'}</h3></div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left min-w-[600px]">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black"><th className="py-4 px-6">Personnel</th><th className="py-4 px-6">Period</th><th className="py-4 px-6">Status</th>{(user.role === 'admin' || user.role === 'manager') && <th className="py-4 px-6">Actions</th>}</tr>
+                      </thead>
+                      <tbody>
+                        {leaveRequests.length > 0 ? leaveRequests.map(req => (
+                          <tr key={req.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-all">
+                            <td className="py-5 px-6"><div className="font-bold text-slate-800 text-sm">{req.firstName} {req.lastName}</div><div className="text-[9px] text-slate-400 font-bold">ID: #{req.employeeId}</div></td>
+                            <td className="py-5 px-6"><div className="text-xs font-bold text-slate-600">{new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}</div></td>
+                            <td className="py-5 px-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${req.status === 'pending' ? 'bg-amber-100 text-amber-700' : req.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{req.status}</span></td>
+                            {(user.role === 'admin' || user.role === 'manager') && (
+                              <td className="py-5 px-6">
+                                {req.status === 'pending' ? (
+                                  <div className="flex gap-2"><button onClick={() => handleLeaveStatusUpdate(req.id, 'approved', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-lg bg-emerald-100 text-emerald-600"><ThumbsUp size={14}/></button><button onClick={() => handleLeaveStatusUpdate(req.id, 'rejected', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-lg bg-red-100 text-red-600"><ThumbsDown size={14}/></button></div>
+                                ) : <span className="text-[10px] text-slate-300 italic">Closed</span>}
+                              </td>
+                            )}
                           </tr>
-                        </thead>
-                        <tbody>
-                          {leaveRequests.length > 0 ? leaveRequests.map(req => (
-                            <tr key={req.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-all">
-                              <td className="py-5 px-6">
-                                <div className="font-bold text-slate-800">{req.firstName} {req.lastName}</div>
-                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">ID: #{req.employeeId}</div>
-                              </td>
-                              <td className="py-5 px-6">
-                                <div className="text-xs font-bold text-slate-600">{new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}</div>
-                                <div className="text-[10px] text-slate-400 font-medium">Requested {new Date(req.requestedAt).toLocaleDateString()}</div>
-                              </td>
-                              <td className="py-5 px-6">
-                                <div className="text-xs text-slate-500 font-medium max-w-[150px] truncate" title={req.reason}>{req.reason}</div>
-                              </td>
-                              <td className="py-5 px-6">
-                                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 w-fit
-                                  ${req.status === 'pending' ? 'bg-amber-100 text-amber-700' : ''}
-                                  ${req.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : ''}
-                                  ${req.status === 'rejected' ? 'bg-red-100 text-red-700' : ''}
-                                `}>
-                                  {req.status === 'pending' && <Clock size={10} />}
-                                  {req.status === 'approved' && <ThumbsUp size={10} />}
-                                  {req.status === 'rejected' && <ThumbsDown size={10} />}
-                                  {req.status}
-                                </span>
-                              </td>
-                              {(user.role === 'admin' || user.role === 'manager') && (
-                                <td className="py-5 px-6">
-                                  {req.status === 'pending' ? (
-                                    <div className="flex gap-2">
-                                      <button onClick={() => handleLeaveStatusUpdate(req.id, 'approved', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-xl bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"><ThumbsUp size={14}/></button>
-                                      <button onClick={() => handleLeaveStatusUpdate(req.id, 'rejected', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-xl bg-red-100 text-red-600 hover:bg-red-600 hover:text-white transition-all"><ThumbsDown size={14}/></button>
-                                    </div>
-                                  ) : (
-                                    <div className="text-[10px] text-slate-300 font-black uppercase italic">Processed</div>
-                                  )}
-                                </td>
-                              )}
-                            </tr>
-                          )) : (
-                            <tr><td colSpan={5} className="py-12 text-center text-slate-400 font-bold italic">No leave applications found.</td></tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                        )) : <tr><td colSpan={4} className="py-12 text-center text-slate-400 italic">No records found.</td></tr>}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-                <div className="space-y-8">
-                  <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
-                    <div className="absolute top-0 right-0 p-10 opacity-10 custom-theme-text"><PlaneTakeoff size={180} /></div>
-                    <h3 className="text-xl font-bold mb-4 relative">Leave Entitlement</h3>
-                    <p className="text-slate-300 text-sm font-medium mb-8 relative leading-relaxed">
-                      All personnel are entitled to annual leave as per the statutory requirements and company policy.
-                    </p>
-                    {user.role === 'staff' && selectedEmployee && (
-                      <div className="space-y-6 relative">
-                        <div className="flex justify-between items-end border-b border-white/10 pb-4">
-                          <div>
-                            <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Remaining Balance</div>
-                            <div className="text-4xl font-black">{selectedEmployee.remainingLeaveDays} <span className="text-lg text-slate-500">Days</span></div>
-                          </div>
-                          <div className="text-right">
-                             <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Entitlement</div>
-                             <div className="text-lg font-bold">{selectedEmployee.totalLeaveDays} Days</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/10">
-                           <AlertCircle size={16} className="text-amber-400 shrink-0" />
-                           <p className="text-[10px] text-slate-400 font-medium">Leave must be requested at least 48 hours in advance for operational planning.</p>
-                        </div>
+                <div className="space-y-6">
+                  <div className="bg-slate-900 rounded-2xl md:rounded-3xl p-6 md:p-8 text-white shadow-2xl relative overflow-hidden">
+                    <PlaneTakeoff size={140} className="absolute top-0 right-0 opacity-10" />
+                    <h3 className="text-lg font-bold mb-4 relative">Entitlement</h3>
+                    {user.role === 'staff' && selectedEmployee ? (
+                      <div className="relative space-y-4">
+                        <div className="text-[10px] text-slate-400 font-black uppercase">Remaining Balance</div>
+                        <div className="text-4xl md:text-5xl font-black">{selectedEmployee.remainingLeaveDays} <span className="text-sm text-slate-500 uppercase">Days</span></div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-white/5 rounded-xl border border-white/10 relative text-center">
+                        <div className="text-[10px] text-slate-400 font-black uppercase mb-2">Pending Approvals</div>
+                        <div className="text-3xl font-black">{leaveRequests.filter(r => r.status === 'pending').length}</div>
                       </div>
                     )}
-                    {(user.role === 'admin' || user.role === 'manager') && (
-                      <div className="space-y-4 relative">
-                        <div className="p-6 bg-white/5 rounded-2xl border border-white/10">
-                           <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">Pending Approvals</div>
-                           <div className="text-3xl font-black">{leaveRequests.filter(r => r.status === 'pending').length}</div>
-                        </div>
-                        <p className="text-[10px] text-slate-400 font-medium italic">Processing approvals updates the personnel roster immediately.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'settings' && user?.role === 'admin' && (
-            <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-                  <Palette className="custom-theme-text" /> Organization Branding
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <form onSubmit={handleSaveSettings} className="bg-white rounded-[40px] shadow-sm border border-slate-100 p-10 space-y-8">
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                        <Building2 size={12} /> Legal Entity Name
-                      </label>
-                      <input name="entityName" type="text" required defaultValue={brandSettings.entityName} className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                        <ImageIcon size={12} /> Logo Image Assets
-                      </label>
-                      <div className="flex flex-col gap-4">
-                        <div className="flex items-center gap-4">
-                           <div className="w-20 h-20 rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
-                              {logoUrlInput ? (
-                                <img src={logoUrlInput} alt="Preview" className="w-full h-full object-contain" />
-                              ) : (
-                                <ImageIcon className="text-slate-300" size={32} />
-                              )}
-                           </div>
-                           <div className="flex flex-col gap-2">
-                              <button 
-                                type="button"
-                                onClick={() => logoUploadRef.current?.click()}
-                                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                              >
-                                <Upload size={14} /> Upload Local File
-                              </button>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase">Max 2MB. PNG, JPG or SVG.</p>
-                           </div>
-                        </div>
-                        <input 
-                          type="file" 
-                          ref={logoUploadRef}
-                          onChange={handleLogoFileChange}
-                          accept="image/*"
-                          className="hidden"
-                        />
-                        <div className="space-y-1">
-                           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Asset URL (Fallback)</p>
-                           <input 
-                             name="logoUrl" 
-                             type="url" 
-                             value={logoUrlInput}
-                             onChange={(e) => setLogoUrlInput(e.target.value)}
-                             placeholder="https://logo.com/image.png" 
-                             className="w-full border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" 
-                           />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                        <Palette size={12} /> Brand Identity Color
-                      </label>
-                      <div className="flex gap-4">
-                        <input name="primaryColor" type="color" defaultValue={brandSettings.primaryColor} className="h-14 w-20 p-1 rounded-xl bg-slate-100 border-2 border-slate-100 cursor-pointer" />
-                        <input type="text" value={brandSettings.primaryColor} readOnly className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 font-mono font-bold text-slate-400 uppercase" />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                        <Building2 size={12} /> Registered Address
-                      </label>
-                      <textarea name="address" rows={2} required defaultValue={brandSettings.address} className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all resize-none" />
-                    </div>
-                  </div>
-                  <button type="submit" className="w-full custom-theme-bg text-white font-black py-5 rounded-2xl shadow-xl transition-all hover:opacity-90 flex items-center justify-center gap-3 uppercase tracking-widest text-sm">
-                    <Save size={18} /> Deploy Brand Settings
-                  </button>
-                </form>
-                <div className="space-y-8">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 ml-2">Live Preview</h3>
-                  <div className="bg-white rounded-[40px] border border-slate-200 overflow-hidden shadow-2xl scale-95 origin-top">
-                    <div className="p-8 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl custom-theme-bg flex items-center justify-center text-white shadow-lg">
-                        {logoUrlInput ? <img src={logoUrlInput} className="w-6 h-6 object-contain" /> : <Building2 size={20} />}
-                      </div>
-                      {/* Fixed: removed non-existent formDataRef and used brandSettings.entityName instead */}
-                      <div className="font-black text-slate-800">{brandSettings.entityName}</div>
-                    </div>
-                    <div className="p-10 space-y-6">
-                      <div className="flex justify-between items-center">
-                        <div className="w-24 h-3 bg-slate-100 rounded-full"></div>
-                        <div className="w-32 h-10 custom-theme-bg rounded-xl shadow-lg"></div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="w-full h-12 bg-slate-50 border border-slate-100 rounded-xl"></div>
-                        <div className="w-full h-12 bg-slate-50 border border-slate-100 rounded-xl"></div>
-                      </div>
-                      <div className="pt-6">
-                         <div className="w-full h-24 border-4 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-[10px] font-black uppercase text-slate-300 tracking-widest">UI Content Block</div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1059,102 +707,53 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'employees' && (user?.role === 'admin' || user?.role === 'manager') && (
-            <div className="space-y-8 animate-in slide-in-from-right-8 duration-500">
-              <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight">Personnel Roster</h2>
-                <div className="flex flex-wrap gap-4">
-                  <button onClick={downloadEmployeeTemplate} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-50 shadow-sm transition-all font-bold text-sm">
-                    <FileDown size={18} /> Template
-                  </button>
-                  <button onClick={handleImportCSVClick} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-50 shadow-sm transition-all font-bold text-sm">
-                    <Upload size={18} /> Import CSV
-                  </button>
-                  <button onClick={handleExportEmployees} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-50 shadow-sm transition-all font-bold text-sm">
-                    <Download size={18} /> Export
-                  </button>
-                  {(user.role === 'admin' || user.role === 'manager') && (
-                    <button onClick={() => { setEditingEmployee(null); setShowAddEmployee(true); }} className="custom-theme-bg text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:opacity-90 shadow-xl transition-all font-bold">
-                      <Plus size={20} /> Onboard Personnel
+            <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-8 duration-500">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <h2 className="text-2xl md:text-3xl font-black text-slate-800">Personnel Roster</h2>
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 md:gap-4">
+                  <button onClick={handleImportCSVClick} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Upload size={16} /> Import</button>
+                  <button onClick={handleExportEmployees} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Download size={16} /> Export</button>
+                  {user.role === 'admin' && (
+                    <button onClick={() => { setEditingEmployee(null); setShowAddEmployee(true); }} className="custom-theme-bg text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-xl font-bold col-span-2 text-xs">
+                      <Plus size={18} /> Onboard Personnel
                     </button>
                   )}
                 </div>
               </div>
-              <div className="space-y-6">
-                <div className="flex gap-3 bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
-                  <div className="p-3"><Search className="text-slate-400" size={20} /></div>
-                  <input 
-                    type="text" 
-                    placeholder="Search by name, PIN or Email..." 
-                    className="bg-transparent border-none focus:outline-none w-full text-slate-700 font-medium"
-                    value={employeeSearchQuery}
-                    onChange={(e) => setEmployeeSearchQuery(e.target.value)}
-                  />
+              <div className="space-y-4">
+                <div className="flex gap-2 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                  <div className="p-2"><Search className="text-slate-400" size={18} /></div>
+                  <input type="text" placeholder="Search by name, PIN or Payroll No..." className="bg-transparent border-none focus:outline-none w-full text-sm font-medium" value={employeeSearchQuery} onChange={(e) => setEmployeeSearchQuery(e.target.value)} />
                 </div>
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left min-w-[700px]">
                       <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black tracking-widest">
+                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black">
+                          <th className="py-4 px-6">Payroll No.</th>
                           <th className="py-4 px-6">Personnel</th>
                           <th className="py-4 px-6">Identity (KRA)</th>
-                          <th className="py-4 px-6">Compensation</th>
-                          <th className="py-4 px-6">Leave Balance</th>
+                          <th className="py-4 px-6">Gross Pay</th>
+                          <th className="py-4 px-6">Leave</th>
                           <th className="py-4 px-6"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredEmployeesList.length > 0 ? filteredEmployeesList.map(emp => (
-                          <tr key={emp.id} className="border-b border-slate-50 last:border-0 hover:bg-blue-50/30 transition-all group cursor-pointer" onClick={() => { setSelectedEmployee(emp); setAiInsight(''); setTaxOptimizationAdvice(''); setP9Breakdown(''); setShowDetailModal(true); }}>
-                            <td className="py-5 px-6">
+                          <tr key={emp.id} className="border-b border-slate-50 last:border-0 hover:bg-blue-50/30 transition-all cursor-pointer" onClick={() => { setSelectedEmployee(emp); setShowDetailModal(true); }}>
+                            <td className="py-4 px-6 text-xs font-black custom-theme-text">{emp.payrollNumber}</td>
+                            <td className="py-4 px-6">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl custom-theme-bg flex items-center justify-center text-white font-bold">{emp.firstName[0]}</div>
-                                <div>
-                                  <div className="font-bold text-slate-800">{emp.firstName} {emp.lastName}</div>
-                                  <div className="text-xs text-slate-400 font-medium">{emp.email}</div>
-                                </div>
+                                <div className="w-8 h-8 rounded-lg custom-theme-bg flex items-center justify-center text-white text-xs font-bold shrink-0">{emp.firstName[0]}</div>
+                                <div className="min-w-0"><div className="font-bold text-slate-800 text-xs truncate">{emp.firstName} {emp.lastName}</div><div className="text-[10px] text-slate-400 truncate">{emp.email}</div></div>
                               </div>
                             </td>
-                            <td className="py-5 px-6">
-                              <div className="text-sm font-bold text-slate-600">{emp.kraPin}</div>
-                              <div className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Ref: #{emp.id}</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <div className="text-sm font-bold text-slate-800">KES {(emp.basicSalary + (emp.benefits || 0)).toLocaleString()}</div>
-                              <div className="text-[9px] text-emerald-600 font-black uppercase">Active Salary</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 w-fit ${emp.remainingLeaveDays < 5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                <CalendarDays size={10} /> {emp.remainingLeaveDays} Days Remaining
-                              </span>
-                            </td>
-                            <td className="py-5 px-6 text-right">
-                              <div className="flex gap-2 justify-end">
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setSelectedEmployee(emp); setShowPayslipModal(true); }}
-                                  className="p-2 rounded-xl bg-slate-100 text-slate-400 hover:custom-theme-bg hover:text-white transition-all shadow-sm flex items-center gap-2"
-                                  title="View Latest Payslip"
-                                >
-                                  <FileIcon size={18} />
-                                </button>
-                                <button 
-                                  onClick={() => { setSelectedEmployee(emp); setAiInsight(''); setTaxOptimizationAdvice(''); setP9Breakdown(''); setShowDetailModal(true); }}
-                                  className="p-2 rounded-xl bg-slate-100 text-slate-400 group-hover:custom-theme-bg group-hover:text-white transition-all shadow-sm"
-                                >
-                                  <Eye size={18} />
-                                </button>
-                              </div>
-                            </td>
+                            <td className="py-4 px-6 text-xs font-bold text-slate-600">{emp.kraPin}</td>
+                            <td className="py-4 px-6 text-xs font-bold text-slate-800">KES {(emp.basicSalary + (emp.benefits || 0)).toLocaleString()}</td>
+                            <td className="py-4 px-6"><span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${emp.remainingLeaveDays < 5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{emp.remainingLeaveDays} Days</span></td>
+                            <td className="py-4 px-6 text-right"><Eye size={16} className="text-slate-300 inline" /></td>
                           </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={5} className="py-20 text-center">
-                              <div className="flex flex-col items-center gap-3 text-slate-400">
-                                <Search size={48} className="opacity-20" />
-                                <p className="font-bold">No personnel records found matching your search.</p>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
+                        )) : <tr><td colSpan={6} className="py-20 text-center text-slate-400 italic">No records found.</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1164,131 +763,50 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'payroll' && (user?.role === 'admin' || user?.role === 'manager') && (
-            <div className="space-y-10 animate-in zoom-in-95 duration-500">
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-12 text-center space-y-8">
-                  <div className="w-24 h-24 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600 mx-auto shadow-inner"><Receipt size={48} /></div>
-                  <div>
-                    <h2 className="text-3xl font-black text-slate-800 tracking-tight">Execute Monthly Ledger</h2>
-                    <p className="text-slate-500 font-medium text-lg mt-2">Committing payroll for {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-                  </div>
-                  <div className="flex justify-center gap-16 py-8 border-y border-slate-100">
-                    <div className="text-center">
-                      <div className="text-slate-400 text-[11px] uppercase font-black tracking-widest mb-2">Personnel Count</div>
-                      <div className="text-4xl font-black text-slate-800">{accessibleEmployees.length}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-slate-400 text-[11px] uppercase font-black tracking-widest mb-2">Estimated Payout</div>
-                      <div className="text-4xl font-black text-slate-800">KES {(accessibleEmployees.reduce((a, b) => a + b.basicSalary + (b.benefits || 0), 0)).toLocaleString()}</div>
-                    </div>
-                  </div>
-                  <button onClick={processPayrollRun} className="custom-theme-bg text-white px-12 py-5 rounded-2xl font-black text-lg hover:opacity-90 shadow-2xl transition-all uppercase tracking-widest">Process & Commit to DB</button>
-                </div>
+            <div className="space-y-8 animate-in zoom-in-95 duration-500">
+              <div className="bg-white rounded-2xl md:rounded-3xl shadow-xl border border-slate-200 p-6 md:p-12 text-center space-y-6 md:space-y-8">
+                <div className="w-16 h-16 md:w-20 md:h-20 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 mx-auto shadow-inner"><Receipt size={32} /></div>
+                <div><h2 className="text-xl md:text-2xl font-black text-slate-800">Execute Monthly Ledger</h2><p className="text-slate-500 text-sm md:text-base">{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p></div>
+                <button onClick={processPayrollRun} className="custom-theme-bg text-white px-8 py-4 md:px-12 md:py-5 rounded-2xl font-black text-sm md:text-lg shadow-2xl transition-all uppercase w-full md:w-auto">Process Payroll</button>
               </div>
-              <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                  <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><History className="custom-theme-text" /> Payroll History</h3>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <button onClick={handleExportPayroll} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-2xl flex items-center gap-2 hover:bg-slate-50 shadow-sm transition-all font-bold text-xs">
-                      <Download size={16} /> Export Data
-                    </button>
-                    <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
-                      <Calendar size={16} className="text-slate-400" />
-                      <select 
-                        value={payrollMonthFilter} 
-                        onChange={(e) => setPayrollMonthFilter(e.target.value)}
-                        className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-600 focus:outline-none cursor-pointer"
-                      >
-                        <option value="all">All Months</option>
-                        {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, i) => (
-                          <option key={m} value={i}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
-                      <Filter size={16} className="text-slate-400" />
-                      <select 
-                        value={payrollYearFilter} 
-                        onChange={(e) => setPayrollYearFilter(e.target.value)}
-                        className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-600 focus:outline-none cursor-pointer"
-                      >
-                        <option value="all">All Years</option>
-                        {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
-                      <UserIcon size={16} className="text-slate-400" />
-                      <select 
-                        value={payrollEmployeeFilter} 
-                        onChange={(e) => setPayrollEmployeeFilter(e.target.value)}
-                        className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-600 focus:outline-none cursor-pointer"
-                      >
-                        <option value="all">All Employees</option>
-                        {employees.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName}</option>
-                        ))}
-                      </select>
-                    </div>
+              
+              <div className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-8 border border-slate-200 shadow-sm">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                  <h3 className="text-lg md:text-xl font-black text-slate-800">Payroll History</h3>
+                  <div className="flex overflow-x-auto pb-2 w-full md:w-auto gap-2 scrollbar-hide">
+                    <select value={payrollMonthFilter} onChange={(e) => setPayrollMonthFilter(e.target.value)} className="bg-slate-50 text-[10px] font-black uppercase p-2 rounded-lg border border-slate-100 min-w-[100px] shrink-0">
+                      <option value="all">Months</option>{["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, i) => <option key={m} value={i}>{m}</option>)}
+                    </select>
+                    <select value={payrollYearFilter} onChange={(e) => setPayrollYearFilter(e.target.value)} className="bg-slate-50 text-[10px] font-black uppercase p-2 rounded-lg border border-slate-100 min-w-[80px] shrink-0">
+                      <option value="all">Years</option>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left">
+                  <table className="w-full text-left min-w-[600px]">
                     <thead>
-                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black tracking-widest">
+                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black">
+                        <th className="py-4 px-6">Batch Ref</th>
                         <th className="py-4 px-6">Personnel</th>
-                        <th className="py-4 px-6">Period</th>
-                        <th className="py-4 px-6 cursor-pointer hover:custom-theme-text transition-colors" onClick={() => toggleSort('netSalary')}>
-                          <div className="flex items-center gap-1">
-                            Net Salary {payrollSortField === 'netSalary' && <ArrowUpDown size={12} className={payrollSortDir === 'asc' ? 'rotate-180' : ''} />}
-                          </div>
-                        </th>
-                        <th className="py-4 px-6 cursor-pointer hover:custom-theme-text transition-colors" onClick={() => toggleSort('processedAt')}>
-                          <div className="flex items-center gap-1">
-                            Processed At {payrollSortField === 'processedAt' && <ArrowUpDown size={12} className={payrollSortDir === 'asc' ? 'rotate-180' : ''} />}
-                          </div>
-                        </th>
+                        <th className="py-4 px-6 text-center">Period</th>
+                        <th className="py-4 px-6 text-right">Net Payable</th>
                         <th className="py-4 px-6"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredPayroll.length > 0 ? filteredPayroll.map(record => {
                         const emp = employees.find(e => e.id === record.employeeId);
-                        const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][record.month];
+                        const monthName = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][record.month];
                         return (
                           <tr key={record.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-all group">
-                            <td className="py-5 px-6">
-                              <div className="font-bold text-slate-800">{emp ? `${emp.firstName} ${emp.lastName}` : 'Deleted User'}</div>
-                              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ref: {record.id}</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <div className="text-sm font-bold text-slate-600">{monthName} {record.year}</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <div className="text-sm font-black custom-theme-text">KES {record.netSalary.toLocaleString()}</div>
-                            </td>
-                            <td className="py-5 px-6">
-                              <div className="text-xs text-slate-500 font-medium">{new Date(record.processedAt).toLocaleString()}</div>
-                            </td>
-                            <td className="py-5 px-6 text-right">
-                              <button 
-                                onClick={() => { setSelectedEmployee(emp || null); setActiveTab('reports'); }}
-                                className="p-2 rounded-xl bg-slate-100 text-slate-400 group-hover:custom-theme-bg group-hover:text-white transition-all"
-                              >
-                                <Eye size={16} />
-                              </button>
-                            </td>
+                            <td className="py-4 px-6 text-[10px] font-black text-slate-400 uppercase tracking-tighter">{record.payrollRef}</td>
+                            <td className="py-4 px-6 min-w-[150px]"><div className="font-bold text-slate-800 text-xs truncate">{emp ? `${emp.firstName} ${emp.lastName}` : 'System User'}</div></td>
+                            <td className="py-4 px-6 text-center text-[10px] font-bold text-slate-600">{monthName} {record.year}</td>
+                            <td className="py-4 px-6 text-right text-xs font-black custom-theme-text">KES {record.netSalary.toLocaleString()}</td>
+                            <td className="py-4 px-6 text-right"><button onClick={() => { setSelectedEmployee(emp || null); setActiveTab('reports'); }} className="p-2 bg-slate-50 rounded-lg group-hover:bg-blue-500 group-hover:text-white transition-all"><Eye size={14} /></button></td>
                           </tr>
                         );
-                      }) : (
-                        <tr>
-                          <td colSpan={5} className="py-20 text-center">
-                            <div className="flex flex-col items-center gap-3 text-slate-400">
-                              <CloudOff size={48} />
-                              <p className="font-bold">No historical data matching the selected criteria.</p>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
+                      }) : <tr><td colSpan={5} className="py-12 text-center text-slate-400 italic">No history found.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -1297,288 +815,91 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'reports' && (
-            <div className="space-y-10 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight">Compliance & Reporting</h2>
-                <div className="flex gap-4">
+            <div className="space-y-6 md:space-y-10 animate-in fade-in duration-500">
+              {/* ... (Existing compliance center UI) */}
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <h2 className="text-2xl md:text-3xl font-black text-slate-800">Compliance Center</h2>
+                <div className="flex gap-2">
                   {(user.role === 'admin' || user.role === 'manager') && (
-                    <button onClick={() => setShowShareModal(true)} disabled={!selectedEmployee} className="flex items-center gap-2 custom-theme-bg text-white px-6 py-3 rounded-2xl font-bold shadow-xl disabled:opacity-50 hover:opacity-90 transition-all">
-                      <Share2 size={18} /> Secure Share
-                    </button>
+                    <button onClick={() => setShowShareModal(true)} disabled={!selectedEmployee} className="flex-1 md:flex-none flex items-center justify-center gap-2 custom-theme-bg text-white px-4 py-3 rounded-xl font-bold shadow-xl disabled:opacity-50 text-xs"><Share2 size={16} /> Share</button>
                   )}
-                  <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold shadow-xl hover:opacity-90 transition-all">
-                    <Printer size={18} /> Export PDF
-                  </button>
+                  <button onClick={() => window.print()} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl font-bold shadow-xl text-xs"><Printer size={16} /> Export</button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8">
-                  <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><Receipt className="custom-theme-text" /> Individual Payslip</h3>
-                  <div className="space-y-6">
-                    {(user?.role !== 'staff') && (
-                      <select className="w-full border-2 border-slate-100 rounded-2xl p-4 bg-slate-50 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" onChange={(e) => { const emp = employees.find(emp => emp.id === e.target.value); if (emp) setSelectedEmployee(emp); }} value={selectedEmployee?.id || ""}>
-                        <option value="" disabled>Select Staff Member</option>
-                        {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}
-                      </select>
-                    )}
-                    {selectedEmployee && (
-                      <div className="border border-slate-100 rounded-3xl p-6 bg-slate-50/50 scale-90 origin-top shadow-inner">
-                        <Payslip employee={selectedEmployee} record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} brand={brandSettings} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-8">
-                  <h3 className="text-xl font-bold text-slate-800 mb-8 flex items-center gap-2"><FileText className="text-indigo-500" /> Annual Tax Summary (P9)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><Receipt size={20} className="custom-theme-text" /> Payslip Viewer</h3>
+                  {user.role !== 'staff' && (
+                    <select className="w-full border border-slate-200 rounded-xl p-3 mb-6 font-bold text-slate-700 text-xs" onChange={(e) => { const emp = employees.find(emp => emp.id === e.target.value); if (emp) setSelectedEmployee(emp); }} value={selectedEmployee?.id || ""}>
+                      <option value="" disabled>Select Employee</option>
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.payrollNumber})</option>)}
+                    </select>
+                  )}
                   {selectedEmployee ? (
-                    <div className="space-y-4">
-                      <div className="border border-slate-100 rounded-3xl p-6 overflow-y-auto h-[500px] shadow-inner">
+                    <div className="overflow-x-auto border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4">
+                      <div className="min-w-[400px] transform scale-90 md:scale-100 origin-top">
+                        <Payslip employee={selectedEmployee} record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, payrollRef: 'PREVIEW-STUB', month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} brand={brandSettings} />
+                      </div>
+                    </div>
+                  ) : <div className="py-20 text-center text-slate-400 text-xs italic">Select a member to view.</div>}
+                </div>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><FileText size={20} className="text-indigo-500" /> P9 Tax Summary</h3>
+                  {selectedEmployee ? (
+                    <div className="overflow-x-auto border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4">
+                      <div className="min-w-[600px] h-[400px] md:h-[500px]">
                         <P9Form employee={selectedEmployee} records={accessiblePayroll.filter(r => r.employeeId === selectedEmployee.id)} brand={brandSettings} />
                       </div>
                     </div>
-                  ) : (
-                    <div className="h-[500px] border-4 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-slate-400 font-bold">Select personnel for P9 card.</div>
-                  )}
+                  ) : <div className="py-20 text-center text-slate-400 text-xs italic">Personnel selection required.</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && user?.role === 'admin' && (
+            <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
+              <div className="mb-8"><h2 className="text-2xl md:text-3xl font-black text-slate-800 flex items-center gap-3"><Palette className="custom-theme-text" /> Branding</h2></div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10">
+                <form onSubmit={handleSaveSettings} className="bg-white rounded-2xl md:rounded-[40px] shadow-sm border border-slate-100 p-6 md:p-10 space-y-8">
+                  <div className="space-y-6">
+                    <FormField label="Legal Entity Name" name="entityName" required defaultValue={brandSettings.entityName} />
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Logo Identity</label>
+                      <div className="flex items-center gap-4 p-4 border-2 border-dashed border-slate-100 rounded-2xl">
+                         <div className="w-16 h-16 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 overflow-hidden">
+                            {logoUrlInput ? <img src={logoUrlInput} className="w-full h-full object-contain" /> : <ImageIcon className="text-slate-200" size={24} />}
+                         </div>
+                         <button type="button" onClick={() => logoUploadRef.current?.click()} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"><Upload size={14} /> Local File</button>
+                         <input type="file" ref={logoUploadRef} onChange={handleLogoFileChange} accept="image/*" className="hidden" />
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <div className="flex-1"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand Color</label><div className="flex gap-2 mt-2"><input name="primaryColor" type="color" defaultValue={brandSettings.primaryColor} className="h-12 w-12 p-1 rounded-xl bg-slate-50 border-2 border-slate-100 cursor-pointer" /><input type="text" value={brandSettings.primaryColor} readOnly className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 text-xs font-mono font-bold text-slate-400 uppercase" /></div></div>
+                    </div>
+                    <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address</label><textarea name="address" rows={2} required defaultValue={brandSettings.address} className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-bold text-slate-700 outline-none focus:border-blue-500 resize-none text-sm" /></div>
+                  </div>
+                  <button type="submit" className="w-full custom-theme-bg text-white font-black py-4 md:py-5 rounded-2xl shadow-xl transition-all hover:opacity-90 uppercase tracking-widest text-xs md:text-sm">Deploy Brand</button>
+                </form>
+                <div className="hidden lg:block space-y-4">
+                  <h3 className="text-xs font-black uppercase text-slate-400 ml-2">Live Preview</h3>
+                  <div className="bg-white rounded-[40px] border border-slate-200 overflow-hidden shadow-2xl scale-95 origin-top p-6">
+                    <div className="flex items-center gap-3 mb-6"><div className="w-10 h-10 rounded-xl custom-theme-bg flex items-center justify-center text-white">{logoUrlInput ? <img src={logoUrlInput} className="w-6 h-6 object-contain" /> : <Building2 size={20} />}</div><div className="font-black text-slate-800">{brandSettings.entityName}</div></div>
+                    <div className="space-y-4"><div className="w-full h-10 bg-slate-50 border border-slate-100 rounded-xl"></div><div className="w-full h-24 border-4 border-dashed border-slate-100 rounded-3xl flex items-center justify-center text-[10px] font-black uppercase text-slate-300">Layout Block</div></div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Payslip Modal */}
-        {showPayslipModal && selectedEmployee && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in">
-             <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-               <div className="bg-slate-900 p-8 text-white flex justify-between items-center shrink-0">
-                  <div className="flex items-center gap-4">
-                     <div className="w-12 h-12 custom-theme-bg rounded-2xl flex items-center justify-center text-white shadow-lg"><FileIcon size={24} /></div>
-                     <div><h3 className="text-2xl font-black">Latest Payslip</h3><p className="text-slate-400 font-bold text-[11px] uppercase tracking-widest">Secure Document Viewer</p></div>
-                  </div>
-                  <button onClick={() => setShowPayslipModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={28} /></button>
-               </div>
-               <div className="flex-1 overflow-y-auto p-10 bg-slate-50">
-                  <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
-                     <Payslip 
-                        employee={selectedEmployee} 
-                        record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} 
-                        brand={brandSettings} 
-                     />
-                  </div>
-               </div>
-               <div className="p-8 border-t border-slate-100 bg-white flex gap-4 shrink-0">
-                  <button onClick={() => window.print()} className="flex-1 bg-slate-900 text-white font-black py-4 rounded-2xl hover:opacity-90 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
-                    <Printer size={16} /> Export PDF
-                  </button>
-                  <button onClick={() => setShowPayslipModal(false)} className="flex-1 custom-theme-bg text-white font-black py-4 rounded-2xl hover:opacity-90 transition-all shadow-xl uppercase tracking-widest text-xs">
-                    Close Document
-                  </button>
-               </div>
-             </div>
-          </div>
-        )}
-
-        {/* Employee Detail Modal */}
-        {showDetailModal && selectedEmployee && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[150] flex items-center justify-center p-6 animate-in fade-in">
-            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-              <div className="bg-slate-900 p-8 text-white flex justify-between items-center shrink-0">
-                <div className="flex items-center gap-5">
-                   <div className="w-16 h-16 custom-theme-bg rounded-2xl flex items-center justify-center text-3xl font-black shadow-lg">{selectedEmployee.firstName[0]}</div>
-                   <div>
-                      <h3 className="text-2xl font-black tracking-tight">{selectedEmployee.firstName} {selectedEmployee.lastName}</h3>
-                      <div className="flex items-center gap-2 text-slate-400 text-xs font-bold mt-1">
-                        <Fingerprint size={12} className="custom-theme-text" /> 
-                        Personnel ID: #{selectedEmployee.id}
-                      </div>
-                   </div>
-                </div>
-                <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={28} /></button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-10 space-y-8 bg-slate-50/50">
-                <section className="grid grid-cols-2 gap-6">
-                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><UserIcon size={12}/> Personal & Contact</h4>
-                      <div className="space-y-3">
-                         <DetailRow label="Full Name" value={`${selectedEmployee.firstName} ${selectedEmployee.lastName}`} />
-                         <DetailRow label="Official Email" value={selectedEmployee.email} />
-                         <DetailRow label="KRA Tax PIN" value={selectedEmployee.kraPin} />
-                         <DetailRow label="Joined Date" value={new Date(selectedEmployee.joinedDate).toLocaleDateString()} />
-                      </div>
-                   </div>
-                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Briefcase size={12}/> Compensation Ledger</h4>
-                      <div className="space-y-3">
-                         <DetailRow label="Base Salary" value={`KES ${selectedEmployee.basicSalary.toLocaleString()}`} />
-                         <DetailRow label="Allowances" value={`KES ${(selectedEmployee.benefits || 0).toLocaleString()}`} />
-                         <DetailRow label="Gross Value" value={`KES ${(selectedEmployee.basicSalary + (selectedEmployee.benefits || 0)).toLocaleString()}`} />
-                         <DetailRow label="NSSF Reference" value={selectedEmployee.nssfNumber} />
-                         <DetailRow label="SHA Identity" value={selectedEmployee.nhifNumber} />
-                      </div>
-                   </div>
-                </section>
-                <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                   <div className="flex justify-between items-center mb-4">
-                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><PlaneTakeoff size={12}/> Annual Leave Entitlement</h4>
-                   </div>
-                   <div className="grid grid-cols-3 gap-6">
-                      <div className="text-center p-4 bg-slate-50 rounded-2xl">
-                         <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Allocated</div>
-                         <div className="text-2xl font-black text-slate-800">{selectedEmployee.totalLeaveDays} <span className="text-xs text-slate-400">Days</span></div>
-                      </div>
-                      <div className="text-center p-4 bg-slate-50 rounded-2xl">
-                         <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Days Consumed</div>
-                         <div className="text-2xl font-black text-slate-800">{selectedEmployee.totalLeaveDays - selectedEmployee.remainingLeaveDays} <span className="text-xs text-slate-400">Days</span></div>
-                      </div>
-                      <div className="text-center p-4 custom-theme-bg rounded-2xl text-white shadow-lg">
-                         <div className="text-[9px] font-black opacity-70 uppercase tracking-widest mb-1">Net Balance</div>
-                         <div className="text-2xl font-black">{selectedEmployee.remainingLeaveDays} <span className="text-xs opacity-70">Days</span></div>
-                      </div>
-                   </div>
-                </section>
-                <section className="space-y-4">
-                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1">
-                      <BrainCircuit size={14} className="custom-theme-text" /> AI Intelligence Service
-                   </h4>
-                   <div className="grid grid-cols-3 gap-3">
-                     <button onClick={() => getAiTaxAdvice(selectedEmployee)} disabled={loadingAi} className="bg-white border border-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
-                        {loadingAi ? <Loader2 className="animate-spin" size={14} /> : <Info size={14} />} 
-                        Analysis
-                     </button>
-                     <button onClick={() => handleGetTaxOptimization(selectedEmployee)} disabled={loadingTaxAdvice} className="bg-white border border-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm">
-                        {loadingTaxAdvice ? <Loader2 className="animate-spin" size={14} /> : <Lightbulb size={14} />} 
-                        Strategy
-                     </button>
-                     <button onClick={() => handleGenerateP9Breakdown(selectedEmployee)} disabled={loadingP9Breakdown} className="custom-theme-bg text-white py-3 rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">
-                        {loadingP9Breakdown ? <Loader2 className="animate-spin" size={14} /> : <FileSearch size={14} />} 
-                        P9 Audit
-                     </button>
-                   </div>
-                   {(aiInsight || taxOptimizationAdvice || p9Breakdown) && (
-                     <div className="space-y-4 pt-2 animate-in slide-in-from-top-2 duration-300">
-                        {aiInsight && (
-                          <div className="bg-white border border-slate-200 p-5 rounded-3xl shadow-sm">
-                             <p className="text-xs text-slate-600 leading-relaxed font-medium italic">"{aiInsight}"</p>
-                          </div>
-                        )}
-                        {taxOptimizationAdvice && (
-                          <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-3xl shadow-sm">
-                             <div className="flex items-center gap-2 text-indigo-700 mb-3"><Lightbulb size={16}/><span className="text-[10px] font-black uppercase tracking-widest">Savings Recommendations</span></div>
-                             <div className="text-xs text-indigo-900 leading-relaxed font-medium whitespace-pre-wrap">{taxOptimizationAdvice}</div>
-                          </div>
-                        )}
-                        {p9Breakdown && (
-                          <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl shadow-sm">
-                             <div className="flex items-center gap-2 text-emerald-700 mb-3"><Scale size={16}/><span className="text-[10px] font-black uppercase tracking-widest">Tax Auditor Breakdown</span></div>
-                             <div className="text-[11px] text-emerald-900 leading-relaxed font-medium whitespace-pre-wrap font-mono bg-white/50 p-4 rounded-2xl border border-emerald-100">{p9Breakdown}</div>
-                          </div>
-                        )}
-                     </div>
-                   )}
-                </section>
-              </div>
-              <div className="p-8 border-t border-slate-100 bg-white flex gap-4 shrink-0">
-                <button onClick={() => { setShowPayslipModal(true); setShowDetailModal(false); }} className="flex-1 bg-slate-900 text-white font-black py-4 rounded-2xl hover:opacity-90 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
-                   <FileIcon size={16} /> View Latest Payslip
-                </button>
-                {(user.role === 'admin' || user.role === 'manager') && (
-                  <button onClick={() => { setEditingEmployee(selectedEmployee); setShowAddEmployee(true); setShowDetailModal(false); }} className="flex-1 bg-slate-100 text-slate-600 font-black py-4 rounded-2xl hover:bg-slate-200 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
-                     <Edit2 size={16} /> Edit Profile
-                  </button>
-                )}
-                <button onClick={() => setShowDetailModal(false)} className="flex-1 custom-theme-bg text-white font-black py-4 rounded-2xl hover:opacity-90 transition-all shadow-xl uppercase tracking-widest text-xs">
-                   Close Details
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Leave Request Modal */}
-        {showLeaveRequestModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in">
-            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-slate-900 p-10 text-white flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 custom-theme-bg rounded-2xl flex items-center justify-center text-white shadow-lg"><PlaneTakeoff size={24} /></div>
-                   <div><h3 className="text-2xl font-black">Apply for Leave</h3><p className="text-slate-400 font-bold text-[11px] uppercase tracking-widest">Balance: {selectedEmployee?.remainingLeaveDays || 0} Days Available</p></div>
-                </div>
-                <button onClick={() => setShowLeaveRequestModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={24} /></button>
-              </div>
-              <form onSubmit={handleLeaveRequestSubmit} className="p-10 space-y-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <FormField label="Start Date" name="startDate" type="date" required />
-                  <FormField label="End Date" name="endDate" type="date" required />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Reason for Absence</label>
-                  <textarea name="reason" rows={3} required placeholder="State your reason for requesting leave..." className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-medium text-slate-700 outline-none focus:custom-theme-border transition-all resize-none" />
-                </div>
-                <div className="flex gap-4 pt-4">
-                   <button type="button" onClick={() => setShowLeaveRequestModal(false)} className="flex-1 py-4 rounded-2xl border-2 border-slate-100 font-bold text-slate-500 hover:bg-slate-50 transition-all">Cancel</button>
-                   <button type="submit" className="flex-1 py-4 rounded-2xl custom-theme-bg text-white font-black hover:opacity-90 shadow-xl transition-all uppercase tracking-widest text-sm">
-                      Submit Application
-                   </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Share Modal */}
-        {showShareModal && selectedEmployee && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in">
-            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-slate-900 p-10 text-white flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 custom-theme-bg rounded-2xl flex items-center justify-center text-white shadow-lg"><Share2 size={24} /></div>
-                   <div><h3 className="text-2xl font-black">Secure Payslip Delivery</h3><p className="text-slate-400 font-bold text-[11px] uppercase tracking-widest">Employee: {selectedEmployee.firstName} {selectedEmployee.lastName}</p></div>
-                </div>
-                <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={24} /></button>
-              </div>
-              <div className="p-10 space-y-6">
-                {shareSuccess ? (
-                  <div className="text-center py-10 animate-in zoom-in-50"><div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6"><CheckCircle2 size={40} /></div><h4 className="text-2xl font-bold text-slate-800">Securely Sent!</h4><p className="text-slate-500 mt-2">The payslip link has been delivered to {shareEmail}.</p></div>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Recipient Address</label>
-                       <div className="relative group">
-                          <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-slate-400 group-focus-within:custom-theme-text"><Mail size={18} /></div>
-                          <input type="email" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} placeholder="recipient@company.com" className="w-full border-2 border-slate-100 rounded-2xl pl-14 pr-5 py-4 font-bold text-slate-700 outline-none focus:custom-theme-border transition-all" />
-                       </div>
-                    </div>
-                    <div className="space-y-2">
-                       <div className="flex justify-between items-center"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Secure Message Content</label><button onClick={handleDraftEmail} disabled={isDraftingEmail} className="custom-theme-text text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 hover:underline disabled:opacity-50 transition-all bg-blue-50 px-3 py-1.5 rounded-lg"><Sparkles size={12} /> Draft with AI</button></div>
-                       <textarea rows={4} value={shareMessage} onChange={(e) => setShareMessage(e.target.value)} placeholder="Enter instructions for the recipient..." className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 font-medium text-slate-700 outline-none focus:custom-theme-border transition-all resize-none" />
-                    </div>
-                    <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 flex items-start gap-4">
-                       <div className="p-3 bg-white rounded-xl text-amber-600 shadow-sm"><ShieldAlert size={20} /></div>
-                       <div className="text-[10px] text-amber-900 font-bold leading-relaxed space-y-1">
-                          <p className="uppercase tracking-widest text-amber-700 font-black">Security Protocol Active</p>
-                          <p className="opacity-70">This action generates a confidential, one-time-access link that expires automatically after 24 hours.</p>
-                       </div>
-                    </div>
-                    <div className="flex gap-4 pt-4">
-                       <button onClick={() => setShowShareModal(false)} className="flex-1 py-4 rounded-2xl border-2 border-slate-100 font-bold text-slate-500 hover:bg-slate-50 transition-all">Cancel</button>
-                       <button onClick={handleShareSubmit} disabled={!shareEmail || isSharing} className="flex-1 py-4 rounded-2xl custom-theme-bg text-white font-black hover:opacity-90 shadow-xl shadow-indigo-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-                          {isSharing ? <Loader2 className="animate-spin" size={20} /> : <Send size={18} />} 
-                          {isSharing ? 'Transmitting...' : 'Send Securely'}
-                       </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Onboarding/Edit Modal */}
+        {/* --- MODALS --- */}
         {showAddEmployee && (user?.role === 'admin' || user?.role === 'manager') && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in">
-            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95">
-              <div className="bg-slate-900 p-10 text-white flex justify-between items-center relative">
-                <div><h3 className="text-3xl font-black">{editingEmployee ? 'Update Personnel' : 'Personnel Onboarding'}</h3><p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-[11px]">System Entry Form</p></div>
-                <button onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="text-slate-400 hover:text-white text-4xl">&times;</button>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[2000] flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in">
+            <div className="bg-white rounded-t-[30px] md:rounded-[40px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in slide-in-from-bottom md:zoom-in-95 flex flex-col h-[95vh] md:max-h-[90vh]">
+              <div className="bg-slate-900 p-6 md:p-10 text-white flex justify-between items-center relative shrink-0">
+                <div><h3 className="text-xl md:text-3xl font-black">{editingEmployee ? 'Update Profile' : 'Onboard User'}</h3><p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-[9px] md:text-[11px]">Secure System Entry</p></div>
+                <button onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="text-slate-400 hover:text-white text-3xl">&times;</button>
               </div>
               <form onSubmit={async (e) => {
                 e.preventDefault();
@@ -1586,6 +907,7 @@ const App: React.FC = () => {
                 const totalLeave = parseInt(fd.get('totalLeaveDays') as string) || 21;
                 const emp: Employee = {
                   id: editingEmployee ? editingEmployee.id : Math.random().toString(36).substr(2, 9),
+                  payrollNumber: fd.get('payrollNumber') as string,
                   firstName: fd.get('firstName') as string,
                   lastName: fd.get('lastName') as string,
                   email: fd.get('email') as string,
@@ -1610,27 +932,115 @@ const App: React.FC = () => {
                   }
                   setShowAddEmployee(false);
                   setEditingEmployee(null);
-                } catch (err) { alert("Error processing personnel record."); } finally { setIsLoading(false); }
-              }} className="p-10 grid grid-cols-2 gap-8 bg-white overflow-y-auto max-h-[70vh]">
+                } catch (err) { alert("Error."); } finally { setIsLoading(false); }
+              }} className="p-5 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 bg-white overflow-y-auto flex-1">
+                <div className="md:col-span-2">
+                  <FormField label="Staff / Payroll Number" name="payrollNumber" required defaultValue={editingEmployee?.payrollNumber} placeholder="e.g. EMP-001" />
+                </div>
                 <FormField label="First Name" name="firstName" required defaultValue={editingEmployee?.firstName} />
                 <FormField label="Last Name" name="lastName" required defaultValue={editingEmployee?.lastName} />
-                <FormField label="Work Email" name="email" type="email" defaultValue={editingEmployee?.email} />
-                <FormField label="KRA Identity (PIN)" name="kraPin" required placeholder="A000...Z" defaultValue={editingEmployee?.kraPin} />
+                <FormField label="Email" name="email" type="email" defaultValue={editingEmployee?.email} />
+                <FormField label="KRA Tax PIN" name="kraPin" required defaultValue={editingEmployee?.kraPin} />
                 <FormField label="NSSF Reference" name="nssfNumber" required defaultValue={editingEmployee?.nssfNumber} />
-                <FormField label="SHA/Health Ref" name="nhifNumber" required defaultValue={editingEmployee?.nhifNumber} />
-                <div className="col-span-2 grid grid-cols-2 gap-8 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                <FormField label="SHA Identity" name="nhifNumber" required defaultValue={editingEmployee?.nhifNumber} />
+                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 md:p-6 bg-slate-50 rounded-2xl md:rounded-3xl border border-slate-100">
                   <FormField label="Monthly Base Salary" name="basicSalary" type="number" required defaultValue={editingEmployee?.basicSalary} />
-                  <FormField label="Monthly Allowances" name="benefits" type="number" defaultValue={editingEmployee?.benefits} />
+                  <FormField label="Allowances" name="benefits" type="number" defaultValue={editingEmployee?.benefits} />
                 </div>
-                <div className="col-span-2 grid grid-cols-2 gap-8 p-6 bg-blue-50 rounded-3xl border border-blue-100">
-                  <FormField label="Total Annual Leave" name="totalLeaveDays" type="number" defaultValue={editingEmployee?.totalLeaveDays || 21} />
-                  <FormField label="Remaining Days" name="remainingLeaveDays" type="number" defaultValue={editingEmployee?.remainingLeaveDays || 21} />
+                <div className="md:col-span-2 grid grid-cols-2 gap-4 p-4 md:p-6 bg-blue-50 rounded-2xl md:rounded-3xl border border-blue-100">
+                  <FormField label="Leave Entitlement" name="totalLeaveDays" type="number" defaultValue={editingEmployee?.totalLeaveDays || 21} />
+                  <FormField label="Remaining" name="remainingLeaveDays" type="number" defaultValue={editingEmployee?.remainingLeaveDays || 21} />
                 </div>
-                <div className="col-span-2 flex justify-end gap-4 mt-4 pt-8 border-t border-slate-100">
-                  <button type="button" onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="px-8 py-4 rounded-2xl border-2 border-slate-100 font-bold text-slate-600 hover:bg-slate-50 transition-all">Cancel</button>
-                  <button type="submit" className="px-8 py-4 rounded-2xl custom-theme-bg text-white font-black hover:opacity-90 shadow-xl transition-all uppercase tracking-widest text-sm">{editingEmployee ? 'Update Ledger' : 'Commit to Ledger'}</button>
+                <div className="md:col-span-2 flex flex-col md:flex-row justify-end gap-3 mt-4 pt-6 border-t border-slate-100">
+                  <button type="button" onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="w-full md:w-auto px-8 py-4 rounded-xl border-2 border-slate-100 font-bold text-slate-500 text-sm">Cancel</button>
+                  <button type="submit" className="w-full md:w-auto px-8 py-4 rounded-xl custom-theme-bg text-white font-black shadow-xl uppercase tracking-widest text-xs">{editingEmployee ? 'Update Ledger' : 'Commit Entry'}</button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ... (Existing Detail and Leave Modals) */}
+        {showDetailModal && selectedEmployee && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[1500] flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in">
+            <div className="bg-white rounded-t-[30px] md:rounded-[40px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in slide-in-from-bottom md:zoom-in-95 flex flex-col h-[95vh] md:max-h-[90vh]">
+              <div className="bg-slate-900 p-6 md:p-8 text-white flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-4">
+                   <div className="w-12 h-12 md:w-16 md:h-16 custom-theme-bg rounded-xl md:rounded-2xl flex items-center justify-center text-xl md:text-3xl font-black shrink-0">{selectedEmployee.firstName[0]}</div>
+                   <div className="min-w-0">
+                      <h3 className="text-lg md:text-2xl font-black truncate">{selectedEmployee.firstName} {selectedEmployee.lastName}</h3>
+                      <div className="text-slate-400 text-[10px] font-bold mt-1">Payroll No: {selectedEmployee.payrollNumber}</div>
+                   </div>
+                </div>
+                <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={24} /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 md:p-10 space-y-6 md:space-y-8 bg-slate-50/50">
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                   <div className="bg-white p-5 md:p-6 rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm">
+                      <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><UserIcon size={12}/> Personal</h4>
+                      <div className="space-y-2 md:space-y-3">
+                         <DetailRow label="Name" value={`${selectedEmployee.firstName} ${selectedEmployee.lastName}`} />
+                         <DetailRow label="Payroll Number" value={selectedEmployee.payrollNumber} />
+                         <DetailRow label="KRA PIN" value={selectedEmployee.kraPin} />
+                         <DetailRow label="Email" value={selectedEmployee.email} />
+                      </div>
+                   </div>
+                   <div className="bg-white p-5 md:p-6 rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm">
+                      <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Briefcase size={12}/> Compensation</h4>
+                      <div className="space-y-2 md:space-y-3">
+                         <DetailRow label="Base" value={`KES ${selectedEmployee.basicSalary.toLocaleString()}`} />
+                         <DetailRow label="Benefits" value={`KES ${(selectedEmployee.benefits || 0).toLocaleString()}`} />
+                         <DetailRow label="NSSF" value={selectedEmployee.nssfNumber} />
+                      </div>
+                   </div>
+                </section>
+                {/* ... (Existing sections) */}
+                <section className="bg-white p-5 md:p-6 rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm">
+                   <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><PlaneTakeoff size={12}/> Leave Balance</h4>
+                   <div className="grid grid-cols-3 gap-2 md:gap-6">
+                      <div className="text-center p-2 md:p-4 bg-slate-50 rounded-xl md:rounded-2xl">
+                         <div className="text-[7px] md:text-[9px] font-black text-slate-400 uppercase mb-1">Total</div>
+                         <div className="text-base md:text-2xl font-black text-slate-800">{selectedEmployee.totalLeaveDays}</div>
+                      </div>
+                      <div className="text-center p-2 md:p-4 bg-slate-50 rounded-xl md:rounded-2xl">
+                         <div className="text-[7px] md:text-[9px] font-black text-slate-400 uppercase mb-1">Used</div>
+                         <div className="text-base md:text-2xl font-black text-slate-800">{selectedEmployee.totalLeaveDays - selectedEmployee.remainingLeaveDays}</div>
+                      </div>
+                      <div className="text-center p-2 md:p-4 custom-theme-bg rounded-xl md:rounded-2xl text-white shadow-lg">
+                         <div className="text-[7px] md:text-[9px] font-black opacity-70 uppercase mb-1">Net</div>
+                         <div className="text-base md:text-2xl font-black">{selectedEmployee.remainingLeaveDays}</div>
+                      </div>
+                   </div>
+                </section>
+                <section className="space-y-4">
+                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 ml-1"><BrainCircuit size={14} className="custom-theme-text" /> AI Intelligence</h4>
+                   <div className="grid grid-cols-3 gap-2">
+                     <button onClick={() => getAiTaxAdvice(selectedEmployee)} disabled={loadingAi} className="bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-sm flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2">
+                        {loadingAi ? <Loader2 className="animate-spin" size={12} /> : <Info size={12} />} <span>Analytic</span>
+                     </button>
+                     <button onClick={() => handleGetTaxOptimization(selectedEmployee)} disabled={loadingTaxAdvice} className="bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-sm flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2">
+                        {loadingTaxAdvice ? <Loader2 className="animate-spin" size={12} /> : <Lightbulb size={12} />} <span>Savings</span>
+                     </button>
+                     <button onClick={() => handleGenerateP9Breakdown(selectedEmployee)} disabled={loadingP9Breakdown} className="custom-theme-bg text-white py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-lg flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2">
+                        {loadingP9Breakdown ? <Loader2 className="animate-spin" size={12} /> : <FileSearch size={12} />} <span>Tax Audit</span>
+                     </button>
+                   </div>
+                   {(aiInsight || taxOptimizationAdvice || p9Breakdown) && (
+                     <div className="space-y-4 pt-2 animate-in slide-in-from-top-2">
+                        {aiInsight && <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm text-[10px] md:text-xs text-slate-600 leading-relaxed italic">"{aiInsight}"</div>}
+                        {taxOptimizationAdvice && <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl text-[10px] md:text-xs text-indigo-900 leading-relaxed whitespace-pre-wrap">{taxOptimizationAdvice}</div>}
+                        {p9Breakdown && <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl text-[10px] md:text-[11px] text-emerald-900 leading-relaxed whitespace-pre-wrap font-mono">{p9Breakdown}</div>}
+                     </div>
+                   )}
+                </section>
+              </div>
+              <div className="p-4 md:p-8 border-t border-slate-100 bg-white grid grid-cols-2 md:flex gap-3 md:gap-4 shrink-0">
+                <button onClick={() => { setShowPayslipModal(true); setShowDetailModal(false); }} className="bg-slate-900 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2"><FileIcon size={16} /> Payslip</button>
+                {(user.role === 'admin' || user.role === 'manager') && (
+                  <button onClick={() => { setEditingEmployee(selectedEmployee); setShowAddEmployee(true); setShowDetailModal(false); }} className="bg-slate-100 text-slate-600 font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2"><Edit2 size={16} /> Edit</button>
+                )}
+                <button onClick={() => setShowDetailModal(false)} className="col-span-2 custom-theme-bg text-white font-black py-4 rounded-xl md:rounded-2xl shadow-xl uppercase tracking-widest text-[9px] md:text-xs">Close</button>
+              </div>
             </div>
           </div>
         )}
@@ -1639,9 +1049,9 @@ const App: React.FC = () => {
   );
 };
 
-const NavItem = ({ icon, label, active, onClick }: any) => (<button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 font-bold text-sm tracking-tight ${active ? 'custom-theme-bg text-white shadow-xl translate-x-1' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}>{icon} {label}</button>);
-const StatCard = ({ title, value, color, bgColor, icon }: any) => (<div className={`p-8 rounded-[32px] border border-slate-100 shadow-sm transition-all hover:shadow-xl ${bgColor}`}><div className="flex items-center justify-between mb-4"><div className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{title}</div><div className={`p-1.5 rounded-lg bg-white/50 ${color}`}>{icon}</div></div><div className={`text-3xl font-black ${color}`}>KES {Number(value || 0).toLocaleString()}</div></div>);
-const DetailRow = ({ label, value }: any) => (<div className="flex justify-between items-center text-sm py-3 border-b border-slate-50 last:border-0"><span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">{label}</span><span className="font-bold text-slate-800">{value}</span></div>);
-const FormField = ({ label, name, type = "text", required = false, placeholder = "", defaultValue }: any) => (<div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label><input type={type} name={name} required={required} placeholder={placeholder} defaultValue={defaultValue} className="w-full border-2 border-slate-100 rounded-2xl px-5 py-4 bg-slate-50 focus:bg-white focus:custom-theme-border outline-none transition-all font-bold text-slate-700" /></div>);
+const NavItem = ({ icon, label, active, onClick }: any) => (<button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 font-bold text-sm tracking-tight ${active ? 'custom-theme-bg text-white shadow-xl translate-x-1' : 'hover:bg-slate-800 text-slate-400 hover:text-white'}`}>{icon} <span className="truncate">{label}</span></button>);
+const StatCard = ({ title, value, color, bgColor, icon }: any) => (<div className={`p-6 md:p-8 rounded-2xl md:rounded-[32px] border border-slate-100 shadow-sm transition-all hover:shadow-xl ${bgColor}`}><div className="flex items-center justify-between mb-4 text-[9px] md:text-[10px] font-black uppercase tracking-widest text-slate-400"><div>{title}</div><div className={`p-1.5 rounded-lg bg-white/50 ${color}`}>{icon}</div></div><div className={`text-xl md:text-3xl font-black ${color} truncate`}>KES {Number(value || 0).toLocaleString()}</div></div>);
+const DetailRow = ({ label, value }: any) => (<div className="flex justify-between items-center text-xs py-3 border-b border-slate-50 last:border-0"><span className="text-slate-400 font-bold uppercase tracking-widest text-[8px] md:text-[10px]">{label}</span><span className="font-bold text-slate-800 truncate ml-2 max-w-[60%]">{value}</span></div>);
+const FormField = ({ label, name, type = "text", required = false, placeholder = "", defaultValue }: any) => (<div className="space-y-2"><label className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label><input type={type} name={name} required={required} placeholder={placeholder} defaultValue={defaultValue} className="w-full border-2 border-slate-100 rounded-xl md:rounded-2xl px-5 py-3 md:py-4 bg-slate-50 focus:bg-white focus:custom-theme-border outline-none transition-all font-bold text-slate-700 text-sm" /></div>);
 
 export default App;
