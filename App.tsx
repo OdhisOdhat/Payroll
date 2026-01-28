@@ -60,6 +60,8 @@ import {
   ChevronLast,
   Trash2
 } from 'lucide-react';
+import * as XLSX from 'xlsx'; // ← Added for .xls / .xlsx support
+
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from './types';
 import { calculatePayroll } from './utils/calculations';
 import { geminiService } from './services/geminiService';
@@ -105,6 +107,7 @@ const App: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoUploadRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null); // ← NEW
 
   // History Filtering & Sorting state
   const [payrollMonthFilter, setPayrollMonthFilter] = useState<string>('all');
@@ -540,7 +543,117 @@ const App: React.FC = () => {
   };
 
   // ────────────────────────────────────────────────
-  // NEW: Popup-based print handler to avoid Trusted Types block
+  // Excel (.xls / .xlsx) import handler – improved with debug + new array ref
+  // ────────────────────────────────────────────────
+  const handleExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = e.target?.result;
+        if (!data) throw new Error("No data");
+
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (json.length < 2) {
+          alert("Excel file has no data rows.");
+          return;
+        }
+
+        const headers = (json[0] as string[]).map(h => 
+          h?.toString().trim().toLowerCase().replace(/\s+/g, '') || ''
+        );
+
+        const rows = json.slice(1);
+
+        const imported: Partial<Employee>[] = rows.map((row: any[]) => {
+          const obj: Record<string, any> = {};
+          headers.forEach((key, i) => { if (key) obj[key] = row[i]; });
+
+          return {
+            payrollNumber: obj.payrollnumber || obj.payrollno || obj.id || obj.staffid || obj['payroll number'] || '',
+            firstName: obj.firstname || obj['first name'] || obj['firstname'] || '',
+            lastName: obj.lastname || obj['last name'] || obj['lastname'] || '',
+            email: obj.email || obj['email address'] || obj.emailaddress || '',
+            kraPin: obj.krapin || obj['kra pin'] || obj.pin || obj.kra || obj['tax pin'] || '',
+            nssfNumber: obj.nssf || obj.nssfnumber || obj['nssf number'] || '',
+            nhifNumber: obj.nhif || obj.sha || obj['sha number'] || obj.nhifnumber || obj['health number'] || '',
+            basicSalary: Number(obj.basicsalary || obj['basic salary'] || obj.salary || obj.basicsal || 0),
+            benefits: Number(obj.benefits || obj.allowances || obj['other benefits'] || obj.benefit || 0),
+            totalLeaveDays: Number(obj.totalleavedays || obj['total leave'] || obj.leavedays || obj['leave days'] || 21),
+            remainingLeaveDays: Number(obj.remainingleavedays || obj['remaining leave'] || obj.leavebalance || obj['leave balance'] || 21),
+            joinedDate: obj.joineddate || obj['date joined'] || obj.hiredate || obj['join date'] || new Date().toISOString(),
+          };
+        }).filter(e => {
+          const payroll = String(e.payrollNumber || '').trim();
+          return Boolean(e.firstName?.trim()) && Boolean(e.lastName?.trim()) && payroll !== '';
+        });
+
+        if (imported.length === 0) {
+          alert(
+            "No valid employee records found.\n\n" +
+            "The file was read successfully, but no rows had all three required fields:\n" +
+            "• First Name (or similar column)\n" +
+            "• Last Name (or similar)\n" +
+            "• Payroll Number / Staff ID (or similar)\n\n" +
+            "Please check your column headers and make sure these fields exist and are filled."
+          );
+          return;
+        }
+
+        // Debug: show first imported record
+        console.debug("[Excel Import] First parsed record:", imported[0]);
+
+        let successCount = 0;
+        for (const data of imported) {
+          try {
+            const emp: Employee = {
+              ...data as Employee,
+              id: Math.random().toString(36).substr(2, 9),
+              isActive: true,
+            };
+            await apiService.saveEmployee(emp);
+            successCount++;
+          } catch (err) {
+            console.warn("One employee failed:", err);
+          }
+        }
+
+        const freshEmployees = await apiService.getEmployees();
+        console.debug("[Excel Import] Fresh employees after save:", {
+          count: freshEmployees?.length || 0,
+          sample: freshEmployees?.slice(0, 2) || []
+        });
+
+        // Use spread to force new array reference → breaks memo equality
+        setEmployees([...(freshEmployees || [])]);
+
+        alert(
+          `Successfully imported ${successCount} of ${imported.length} employees from Excel file.\n\n` +
+          `If new employees don't appear in the table, check the browser console (F12) for debug output.\n` +
+          `Try refreshing the page (F5) if needed.`
+        );
+      } catch (err) {
+        console.error("Excel import error:", err);
+        alert("Failed to read Excel file. Please ensure it's a valid .xls or .xlsx file.");
+      } finally {
+        setIsLoading(false);
+        if (excelInputRef.current) excelInputRef.current.value = '';
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  // ────────────────────────────────────────────────
+  // Popup-based print handler (unchanged)
   // ────────────────────────────────────────────────
   const handlePrintToPDF = () => {
     if (!selectedEmployee) {
@@ -599,7 +712,6 @@ const App: React.FC = () => {
     const contentElement = document.querySelector('.print-content');
     if (contentElement) {
       const cloned = contentElement.cloneNode(true) as HTMLElement;
-      // Clean up interactive elements that shouldn't appear in print
       cloned.querySelectorAll('button, select, input, .no-print').forEach(el => el.remove());
       printWindow.document.querySelector('.print-content')?.appendChild(cloned);
     } else {
@@ -726,7 +838,8 @@ const App: React.FC = () => {
       `}</style>
 
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
-      
+      <input type="file" ref={excelInputRef} onChange={handleExcelImport} accept=".xls,.xlsx" className="hidden" />
+
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[1000] lg:hidden animate-in fade-in">
@@ -924,11 +1037,18 @@ const App: React.FC = () => {
 
           {activeTab === 'employees' && (user?.role === 'admin' || user?.role === 'manager') && (
             <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-8 duration-500">
-              {/* unchanged employees tab */}
               <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl md:text-3xl font-black text-slate-800">Personnel Roster</h2>
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 md:gap-4">
-                  <button onClick={handleImportCSVClick} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Upload size={16} /> Import</button>
+                  <button onClick={handleImportCSVClick} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Upload size={16} /> Import CSV</button>
+                  
+                  <button 
+                    onClick={() => excelInputRef.current?.click()} 
+                    className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"
+                  >
+                    <Upload size={16} /> Import Excel (.xls/.xlsx)
+                  </button>
+
                   <button onClick={handleExportEmployees} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Download size={16} /> Export</button>
                   {(user.role === 'admin' || user.role === 'manager') && (
                     <button onClick={() => { setEditingEmployee(null); setShowAddEmployee(true); }} className="custom-theme-bg text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-xl font-bold col-span-2 text-xs">
@@ -1002,7 +1122,6 @@ const App: React.FC = () => {
 
           {activeTab === 'payroll' && (user?.role === 'admin' || user?.role === 'manager') && (
             <div className="space-y-8 animate-in zoom-in-95 duration-500">
-              {/* unchanged payroll tab */}
               <div className="bg-white rounded-2xl md:rounded-3xl shadow-xl border border-slate-200 p-6 md:p-12 text-center space-y-6 md:space-y-8">
                 <div className="w-16 h-16 md:w-20 md:h-20 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 mx-auto shadow-inner"><Receipt size={32} /></div>
                 <div><h2 className="text-xl md:text-2xl font-black text-slate-800">Execute Monthly Ledger</h2><p className="text-slate-500 text-sm md:text-base">{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p></div>
@@ -1055,7 +1174,6 @@ const App: React.FC = () => {
 
           {activeTab === 'reports' && (
             <div className="space-y-6 md:space-y-10 animate-in fade-in duration-500">
-              {/* Improved print styles - no position: absolute, no scale issues */}
               <style>{`
                 @media print {
                   body > *:not(.print-content) { display: none !important; }
@@ -1103,10 +1221,8 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Content that will be exported to PDF */}
               <div className="print-content">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 print:grid-cols-1">
-                  {/* Payslip Viewer */}
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8 print:shadow-none print:border-0">
                     <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 print:text-base">
                       <Receipt size={20} className="custom-theme-text" /> Payslip Viewer
@@ -1149,7 +1265,6 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  {/* P9 Tax Summary */}
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8 print:shadow-none print:border-0">
                     <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 print:text-base">
                       <FileText size={20} className="text-indigo-500" /> P9 Tax Summary
@@ -1210,10 +1325,6 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* ──────────────────────────────────────────────── */}
-        {/* MODALS (completely unchanged) */}
-        {/* ──────────────────────────────────────────────── */}
 
         {showAddEmployee && (user?.role === 'admin' || user?.role === 'manager') && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[2000] flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in">
@@ -1340,7 +1451,11 @@ const App: React.FC = () => {
                      <button onClick={() => handleGetTaxOptimization(selectedEmployee)} disabled={loadingTaxAdvice} className="bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-sm flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2">
                         {loadingTaxAdvice ? <Loader2 className="animate-spin" size={12} /> : <Lightbulb size={12} />} <span>Savings</span>
                      </button>
-                     <button onClick={() => handleGenerateP9Breakdown(selectedEmployee)} disabled={loadingP9Breakdown} className="custom-theme-bg text-white py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-lg flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2">
+                     <button 
+                       onClick={() => handleGenerateP9Breakdown(selectedEmployee)} 
+                       disabled={loadingP9Breakdown} 
+                       className="custom-theme-bg text-white py-3 rounded-xl font-bold text-[8px] md:text-[10px] uppercase shadow-lg flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2"
+                     >
                         {loadingP9Breakdown ? <Loader2 className="animate-spin" size={12} /> : <FileSearch size={12} />} <span>Tax Audit</span>
                      </button>
                    </div>
