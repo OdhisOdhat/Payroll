@@ -1,84 +1,119 @@
 import { TAX_CONSTANTS } from '../constants';
 import { PayrollRecord } from '../types';
 
+interface NSSFConfig {
+  lowerEarningsLimit: number;
+  upperEarningsLimit: number;
+}
+
 /**
- * Calculates Kenyan payroll deductions correctly
- * per Income Tax Act (Cap 470) and statutory levies.
+ * Calculates Kenyan payroll deductions accurately per 2026 rules.
+ * - PAYE on taxable income AFTER NSSF + SHIF + AHL deductions.
+ * - SHIF: 2.75% of gross (min 300).
+ * - AHL: 1.5% of gross (employee portion).
+ * - Personal relief: KES 2,400/month.
+ * - NSSF: 6% phased limits (configurable for Jan vs Feb 2026 transition).
+ * - Assumes resident employee; no extra reliefs (pension, mortgage, insurance).
  */
 export const calculatePayroll = (
   basicSalary: number,
-  benefits: number = 0
+  benefits: number = 0,
+  options: {
+    roundToWhole?: boolean;                   // round final amounts to nearest KES
+    nssfConfig?: NSSFConfig;                  // override for Jan 2026 vs Feb+
+  } = {}
 ): Omit<
   PayrollRecord,
   'id' | 'employeeId' | 'month' | 'year' | 'processedAt' | 'payrollRef'
 > => {
-  /** 1. Gross taxable pay */
-  const grossSalary = basicSalary + benefits;
+  const { roundToWhole = true, nssfConfig } = options;
 
-  /** 2. PAYE – calculated on GROSS (not reduced by NSSF) */
-  let tax = 0;
+  // ────────────────────────────────────────────────
+  // Core calculations – use let only for values we might round later
+  // ────────────────────────────────────────────────
+  let grossSalary = basicSalary + benefits;
 
-  // Band 1: First 24,000 @ 10%
-  tax += Math.min(grossSalary, 24000) * 0.10;
+  // 1. NSSF Employee contribution (6% phased)
+  const nssfLimits = nssfConfig || {
+    lowerEarningsLimit: 9000,     // default to Feb 2026+
+    upperEarningsLimit: 108000,
+  };
 
-  // Band 2: Next 8,333 @ 25%
-  tax += Math.min(
-    Math.max(grossSalary - 24000, 0),
-    8333
-  ) * 0.25;
-
-  // Band 3: Next 467,667 @ 30%
-  tax += Math.min(
-    Math.max(grossSalary - 32333, 0),
-    467667
-  ) * 0.30;
-
-  // Band 4: Next 300,000 @ 32.5%
-  tax += Math.min(
-    Math.max(grossSalary - 500000, 0),
-    300000
-  ) * 0.325;
-
-  // Band 5: Above 800,000 @ 35%
-  tax += Math.max(grossSalary - 800000, 0) * 0.35;
-
-  /** 3. Personal Relief (fixed) */
-  const personalRelief = TAX_CONSTANTS.PERSONAL_RELIEF; // 2,400
-  const paye = Math.max(0, tax - personalRelief);
-
-  /** 4. NSSF – employee contribution (post-tax deduction) */
   let nssf = 0;
   if (grossSalary > 0) {
-    const tierI = Math.min(7000 * 0.06, TAX_CONSTANTS.NSSF_TIER_I_MAX);
-    const tierIIBand = Math.max(
-      Math.min(grossSalary, 36000) - 7000,
-      0
-    );
-    const tierII = Math.min(
-      tierIIBand * 0.06,
-      TAX_CONSTANTS.NSSF_TIER_II_MAX
-    );
+    const pensionablePay = Math.min(grossSalary, nssfLimits.upperEarningsLimit);
+    const tierI = Math.min(pensionablePay, nssfLimits.lowerEarningsLimit) * 0.06;
+    const tierIIBase = Math.max(pensionablePay - nssfLimits.lowerEarningsLimit, 0);
+    const tierII = tierIIBase * 0.06;
     nssf = tierI + tierII;
   }
 
-  /** 5. Statutory levies (on gross) */
-  const housingLevy = grossSalary * TAX_CONSTANTS.HOUSING_LEVY_RATE; // 1.5%
-  const sha = grossSalary * TAX_CONSTANTS.SHA_RATE; // 2.75%
+  // 2. SHIF (Social Health Insurance Fund) – 2.75% of gross, min 300
+  let sha = grossSalary * TAX_CONSTANTS.SHA_RATE; // 0.0275
+  sha = Math.max(sha, 300);
 
-  /** 6. Net salary */
-  const netSalary =
-    grossSalary - paye - nssf - housingLevy - sha;
+  // 3. Affordable Housing Levy – 1.5% of gross (employee)
+  const housingLevy = grossSalary * TAX_CONSTANTS.HOUSING_LEVY_RATE; // 0.015
+
+  // 4. Taxable income = Gross − (NSSF + SHIF + AHL)
+  let taxableIncome = Math.max(0, grossSalary - nssf - sha - housingLevy);
+
+  // 5. PAYE – progressive bands on taxable income
+  let grossTax = 0;
+
+  if (taxableIncome > 0) {
+    grossTax += Math.min(taxableIncome, 24000) * 0.10;
+
+    if (taxableIncome > 24000) {
+      grossTax += Math.min(taxableIncome - 24000, 8333) * 0.25;
+    }
+
+    if (taxableIncome > 32333) {
+      grossTax += Math.min(taxableIncome - 32333, 467667) * 0.30;
+    }
+
+    if (taxableIncome > 500000) {
+      grossTax += Math.min(taxableIncome - 500000, 300000) * 0.325;
+    }
+
+    if (taxableIncome > 800000) {
+      grossTax += (taxableIncome - 800000) * 0.35;
+    }
+  }
+
+  const personalRelief = TAX_CONSTANTS.PERSONAL_RELIEF; // 2400
+  let paye = Math.max(0, grossTax - personalRelief);
+
+  // 6. Net salary (before other voluntary deductions)
+  let netSalary = grossSalary - paye - nssf - housingLevy - sha - TAX_CONSTANTS.NITA_LEVY;
+
+  // ────────────────────────────────────────────────
+  // Optional rounding – create rounded versions instead of mutating originals
+  // ────────────────────────────────────────────────
+  if (roundToWhole) {
+    grossSalary = Math.round(grossSalary);
+    // benefits is input → usually no need to round unless you want to
+    // benefits = Math.round(benefits);
+    nssf = Math.round(nssf);
+    sha = Math.round(sha);
+    // housingLevy is exact percentage → usually already integer
+    // housingLevy = Math.round(housingLevy);
+    taxableIncome = Math.round(taxableIncome);
+    grossTax = Math.round(grossTax);
+    paye = Math.round(paye);
+    netSalary = Math.round(netSalary);
+  }
 
   return {
     grossSalary,
     benefits,
-    taxableIncome: grossSalary,
+    taxableIncome,
     paye,
     personalRelief,
     nssf,
     housingLevy,
     sha,
     nita: TAX_CONSTANTS.NITA_LEVY,
-    netSalary
+    netSalary,
   };
 };

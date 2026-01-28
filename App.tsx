@@ -57,7 +57,8 @@ import {
   FileDown,
   FileText as FileIcon,
   Zap,
-  ChevronLast
+  ChevronLast,
+  Trash2
 } from 'lucide-react';
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest } from './types';
 import { calculatePayroll } from './utils/calculations';
@@ -163,7 +164,7 @@ const App: React.FC = () => {
         setPayrollHistory(Array.isArray(payrollData) ? payrollData : []);
         setAuditLogs(Array.isArray(auditData) ? auditData : []);
         setLeaveRequests(Array.isArray(leaveData) ? leaveData : []);
-        if (brandData) setBrandSettings(brandData);
+        if (brandData) setBrandSettings(brandData as BrandSettings);
         
         if (user.role === 'staff' && user.employeeId) {
           const self = (Array.isArray(empData) ? empData : []).find(e => e.id === user.employeeId);
@@ -260,8 +261,9 @@ const App: React.FC = () => {
   };
 
   const accessibleEmployees = useMemo(() => {
-    if (user?.role === 'admin' || user?.role === 'tax' || user?.role === 'manager') return employees;
-    return employees.filter(e => e.id === user?.employeeId);
+    let filtered = employees.filter(e => e.isActive !== false);
+    if (user?.role === 'admin' || user?.role === 'tax' || user?.role === 'manager') return filtered;
+    return filtered.filter(e => e.id === user?.employeeId);
   }, [employees, user]);
 
   const filteredEmployeesList = useMemo(() => {
@@ -367,6 +369,73 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteEmployee = async (id: string) => {
+    if (!window.confirm('Are you sure you want to remove this employee from the system? This action is irreversible.')) return;
+    
+    setIsLoading(true);
+    try {
+      await apiService.deleteEmployee(id);
+      setEmployees(prev => prev.filter(e => e.id !== id));
+      if (selectedEmployee?.id === id) {
+        setSelectedEmployee(null);
+        setShowDetailModal(false);
+      }
+      if (user) {
+        await apiService.saveAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          performedBy: `${user.firstName} ${user.lastName}`,
+          userRole: user.role,
+          action: 'Employee Removed',
+          details: `Employee ID ${id} was permanently removed from the ledger.`,
+          timestamp: new Date().toISOString()
+        });
+      }
+      alert('Employee successfully removed.');
+    } catch (error) {
+      alert('Failed to remove employee.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTerminateEmployee = async (employeeId: string) => {
+    if (!window.confirm('Terminate this employee? This will deactivate their record but preserve history.')) return;
+
+    const reason = window.prompt('Enter termination reason (optional):') || null;
+
+    setIsLoading(true);
+    try {
+      await apiService.terminateEmployee(employeeId, reason);
+
+      setEmployees(prev => prev.map(e => 
+        e.id === employeeId 
+          ? { ...e, isActive: false, terminatedAt: new Date().toISOString(), terminationReason: reason }
+          : e
+      ));
+
+      if (selectedEmployee?.id === employeeId) {
+        setSelectedEmployee(prev => prev ? { ...prev, isActive: false, terminatedAt: new Date().toISOString(), terminationReason: reason } : null);
+      }
+
+      if (user) {
+        await apiService.saveAuditLog({
+          id: Math.random().toString(36).substr(2, 9),
+          performedBy: `${user.firstName} ${user.lastName}`,
+          userRole: user.role,
+          action: 'Employee Terminated',
+          details: `Employee ID ${employeeId} terminated. Reason: ${reason || 'Not specified'}.`,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      alert('Employee terminated successfully.');
+    } catch (err: any) {
+      alert(`Failed to terminate employee: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLeaveRequestSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user || !user.employeeId) return;
@@ -396,7 +465,7 @@ const App: React.FC = () => {
   };
 
   const handleLeaveStatusUpdate = async (id: string, status: 'approved' | 'rejected', employeeId: string, startDate: string, endDate: string) => {
-    if (!user) return;
+    if (!user || (user.role !== 'admin' && user.role !== 'manager')) return;
     const start = new Date(startDate);
     const end = new Date(endDate);
     const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
@@ -431,7 +500,6 @@ const App: React.FC = () => {
     const year = now.getFullYear();
     const monthName = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][month];
     
-    // Generate a run reference (e.g., PAY-OCT-2024-KRA)
     const runRef = `PAY-${monthName}-${year}-${brandSettings.entityName.substring(0, 3).toUpperCase()}`;
 
     const newRecords: PayrollRecord[] = accessibleEmployees.map(emp => ({
@@ -469,6 +537,76 @@ const App: React.FC = () => {
       setEmployees(await apiService.getEmployees());
     };
     reader.readAsText(file);
+  };
+
+  // ────────────────────────────────────────────────
+  // NEW: Popup-based print handler to avoid Trusted Types block
+  // ────────────────────────────────────────────────
+  const handlePrintToPDF = () => {
+    if (!selectedEmployee) {
+      alert("Please select an employee first to generate the document.");
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Popup blocked. Please allow popups for this site and try again.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Payslip & P9 - ${selectedEmployee.firstName} ${selectedEmployee.lastName}</title>
+        <style>
+          body { 
+            margin: 0; 
+            padding: 20px; 
+            font-family: Arial, Helvetica, sans-serif; 
+            background: white; 
+            color: black; 
+          }
+          .print-content { 
+            width: 100%; 
+            max-width: 210mm; 
+            margin: 0 auto; 
+          }
+          @media print {
+            body { padding: 0; margin: 0; }
+            .print-content { width: 210mm; margin: 0; }
+            @page { size: A4 portrait; margin: 1.5cm; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-content">
+          <!-- Content injected here -->
+        </div>
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 1200); // Give time for content to render
+          };
+        </script>
+      </body>
+      </html>
+    `);
+
+    const contentElement = document.querySelector('.print-content');
+    if (contentElement) {
+      const cloned = contentElement.cloneNode(true) as HTMLElement;
+      // Clean up interactive elements that shouldn't appear in print
+      cloned.querySelectorAll('button, select, input, .no-print').forEach(el => el.remove());
+      printWindow.document.querySelector('.print-content')?.appendChild(cloned);
+    } else {
+      printWindow.document.body.innerHTML += '<h2 style="text-align:center; color:red; margin-top:50px;">Error: Printable content not found</h2>';
+    }
+
+    printWindow.document.close();
   };
 
   const Sidebar = ({ isMobile = false }: { isMobile?: boolean }) => (
@@ -553,7 +691,40 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <style>{`:root { --primary-color: ${brandSettings.primaryColor}; --primary-color-light: ${brandSettings.primaryColor}20; } .custom-theme-bg { background-color: var(--primary-color); } .custom-theme-text { color: var(--primary-color); } .custom-theme-border { border-color: var(--primary-color); }`}</style>
+      <style>{`
+        :root { 
+          --primary-color: ${brandSettings.primaryColor}; 
+          --primary-color-light: ${brandSettings.primaryColor}20; 
+        }
+        .custom-theme-bg { background-color: var(--primary-color); }
+        .custom-theme-text { color: var(--primary-color); }
+        .custom-theme-border { border-color: var(--primary-color); }
+
+        @media print {
+          body > *:not(.print-content) { display: none !important; }
+          .print-content, .print-content * {
+            visibility: visible !important;
+            display: block !important;
+            position: static !important;
+            transform: none !important;
+            overflow: visible !important;
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 8px 0 !important;
+            box-sizing: border-box;
+          }
+          .no-print { display: none !important; }
+          header, aside, nav, footer, button, select { display: none !important; }
+          .overflow-x-auto, .overflow-hidden { overflow: visible !important; }
+          .min-w-[400px], .min-w-[600px] { min-width: 100% !important; width: auto !important; }
+          @page {
+            size: A4 portrait;
+            margin: 1.5cm;
+          }
+        }
+      `}</style>
+
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
       
       {/* Mobile Sidebar Overlay */}
@@ -586,7 +757,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="p-4 md:p-10 no-print max-w-7xl mx-auto w-full">
+        <div className="p-4 md:p-10 max-w-7xl mx-auto w-full">
           {activeTab === 'dashboard' && (
             <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
@@ -660,27 +831,72 @@ const App: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
                 <div className="lg:col-span-2 bg-white rounded-2xl md:rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="p-6 border-b border-slate-100"><h3 className="font-bold text-slate-700 uppercase tracking-widest text-xs">{user.role === 'admin' ? 'Recent Applications' : 'My Requests'}</h3></div>
+                  <div className="p-6 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-700 uppercase tracking-widest text-xs">
+                      {user.role === 'staff' ? 'My Requests' : 'All Leave Requests'}
+                    </h3>
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[600px]">
                       <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black"><th className="py-4 px-6">Personnel</th><th className="py-4 px-6">Period</th><th className="py-4 px-6">Status</th>{(user.role === 'admin' || user.role === 'manager') && <th className="py-4 px-6">Actions</th>}</tr>
+                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black">
+                          <th className="py-4 px-6">Personnel</th>
+                          <th className="py-4 px-6">Period</th>
+                          <th className="py-4 px-6">Status</th>
+                          {(user.role === 'admin' || user.role === 'manager') && <th className="py-4 px-6">Actions</th>}
+                        </tr>
                       </thead>
                       <tbody>
                         {leaveRequests.length > 0 ? leaveRequests.map(req => (
                           <tr key={req.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-all">
-                            <td className="py-5 px-6"><div className="font-bold text-slate-800 text-sm">{req.firstName} {req.lastName}</div><div className="text-[9px] text-slate-400 font-bold">ID: #{req.employeeId}</div></td>
-                            <td className="py-5 px-6"><div className="text-xs font-bold text-slate-600">{new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}</div></td>
-                            <td className="py-5 px-6"><span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${req.status === 'pending' ? 'bg-amber-100 text-amber-700' : req.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{req.status}</span></td>
+                            <td className="py-5 px-6">
+                              <div className="font-bold text-slate-800 text-sm">{req.firstName} {req.lastName}</div>
+                              <div className="text-[9px] text-slate-400 font-bold">ID: #{req.employeeId}</div>
+                            </td>
+                            <td className="py-5 px-6">
+                              <div className="text-xs font-bold text-slate-600">
+                                {new Date(req.startDate).toLocaleDateString()} - {new Date(req.endDate).toLocaleDateString()}
+                              </div>
+                            </td>
+                            <td className="py-5 px-6">
+                              <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${
+                                req.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                                req.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                                {req.status}
+                              </span>
+                            </td>
                             {(user.role === 'admin' || user.role === 'manager') && (
                               <td className="py-5 px-6">
                                 {req.status === 'pending' ? (
-                                  <div className="flex gap-2"><button onClick={() => handleLeaveStatusUpdate(req.id, 'approved', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-lg bg-emerald-100 text-emerald-600"><ThumbsUp size={14}/></button><button onClick={() => handleLeaveStatusUpdate(req.id, 'rejected', req.employeeId, req.startDate, req.endDate)} className="p-2 rounded-lg bg-red-100 text-red-600"><ThumbsDown size={14}/></button></div>
-                                ) : <span className="text-[10px] text-slate-300 italic">Closed</span>}
+                                  <div className="flex gap-2">
+                                    <button 
+                                      onClick={() => handleLeaveStatusUpdate(req.id, 'approved', req.employeeId, req.startDate, req.endDate)} 
+                                      className="p-2 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors"
+                                    >
+                                      <ThumbsUp size={14}/>
+                                    </button>
+                                    <button 
+                                      onClick={() => handleLeaveStatusUpdate(req.id, 'rejected', req.employeeId, req.startDate, req.endDate)} 
+                                      className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                    >
+                                      <ThumbsDown size={14}/>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-300 italic">Closed</span>
+                                )}
                               </td>
                             )}
                           </tr>
-                        )) : <tr><td colSpan={4} className="py-12 text-center text-slate-400 italic">No records found.</td></tr>}
+                        )) : (
+                          <tr>
+                            <td colSpan={(user.role === 'admin' || user.role === 'manager') ? 4 : 3} className="py-12 text-center text-slate-400 italic">
+                              No leave requests found.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -708,12 +924,13 @@ const App: React.FC = () => {
 
           {activeTab === 'employees' && (user?.role === 'admin' || user?.role === 'manager') && (
             <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-8 duration-500">
+              {/* unchanged employees tab */}
               <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl md:text-3xl font-black text-slate-800">Personnel Roster</h2>
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 md:gap-4">
                   <button onClick={handleImportCSVClick} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Upload size={16} /> Import</button>
                   <button onClick={handleExportEmployees} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-xl flex items-center justify-center gap-2 text-xs font-bold"><Download size={16} /> Export</button>
-                  {user.role === 'admin' && (
+                  {(user.role === 'admin' || user.role === 'manager') && (
                     <button onClick={() => { setEditingEmployee(null); setShowAddEmployee(true); }} className="custom-theme-bg text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-xl font-bold col-span-2 text-xs">
                       <Plus size={18} /> Onboard Personnel
                     </button>
@@ -735,6 +952,7 @@ const App: React.FC = () => {
                           <th className="py-4 px-6">Identity (KRA)</th>
                           <th className="py-4 px-6">Gross Pay</th>
                           <th className="py-4 px-6">Leave</th>
+                          <th className="py-4 px-6">Status</th>
                           <th className="py-4 px-6"></th>
                         </tr>
                       </thead>
@@ -751,9 +969,29 @@ const App: React.FC = () => {
                             <td className="py-4 px-6 text-xs font-bold text-slate-600">{emp.kraPin}</td>
                             <td className="py-4 px-6 text-xs font-bold text-slate-800">KES {(emp.basicSalary + (emp.benefits || 0)).toLocaleString()}</td>
                             <td className="py-4 px-6"><span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${emp.remainingLeaveDays < 5 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{emp.remainingLeaveDays} Days</span></td>
-                            <td className="py-4 px-6 text-right"><Eye size={16} className="text-slate-300 inline" /></td>
+                            <td className="py-4 px-6">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${emp.isActive !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                {emp.isActive !== false ? 'Active' : 'Terminated'}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-right">
+                              <div className="flex items-center justify-end gap-3">
+                                <Eye size={16} className="text-slate-300" />
+                                {(user.role === 'admin' || user.role === 'manager') && emp.isActive !== false && (
+                                  <button 
+                                    onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      handleTerminateEmployee(emp.id); 
+                                    }} 
+                                    className="p-1.5 hover:bg-red-50 rounded-lg text-red-600 hover:text-red-700 transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
-                        )) : <tr><td colSpan={6} className="py-20 text-center text-slate-400 italic">No records found.</td></tr>}
+                        )) : <tr><td colSpan={7} className="py-20 text-center text-slate-400 italic">No records found.</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -764,6 +1002,7 @@ const App: React.FC = () => {
 
           {activeTab === 'payroll' && (user?.role === 'admin' || user?.role === 'manager') && (
             <div className="space-y-8 animate-in zoom-in-95 duration-500">
+              {/* unchanged payroll tab */}
               <div className="bg-white rounded-2xl md:rounded-3xl shadow-xl border border-slate-200 p-6 md:p-12 text-center space-y-6 md:space-y-8">
                 <div className="w-16 h-16 md:w-20 md:h-20 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 mx-auto shadow-inner"><Receipt size={32} /></div>
                 <div><h2 className="text-xl md:text-2xl font-black text-slate-800">Execute Monthly Ledger</h2><p className="text-slate-500 text-sm md:text-base">{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p></div>
@@ -816,42 +1055,121 @@ const App: React.FC = () => {
 
           {activeTab === 'reports' && (
             <div className="space-y-6 md:space-y-10 animate-in fade-in duration-500">
-              {/* ... (Existing compliance center UI) */}
+              {/* Improved print styles - no position: absolute, no scale issues */}
+              <style>{`
+                @media print {
+                  body > *:not(.print-content) { display: none !important; }
+                  .print-content, .print-content * {
+                    visibility: visible !important;
+                    display: block !important;
+                    position: static !important;
+                    transform: none !important;
+                    overflow: visible !important;
+                    width: 100% !important;
+                    height: auto !important;
+                    margin: 0 !important;
+                    padding: 8px 0 !important;
+                    box-sizing: border-box;
+                  }
+                  .no-print { display: none !important; }
+                  header, aside, nav, footer, button, select { display: none !important; }
+                  .overflow-x-auto, .overflow-hidden { overflow: visible !important; }
+                  .min-w-[400px], .min-w-[600px] { min-width: 100% !important; width: auto !important; }
+                  @page {
+                    size: A4 portrait;
+                    margin: 1.5cm;
+                  }
+                }
+              `}</style>
+
               <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <h2 className="text-2xl md:text-3xl font-black text-slate-800">Compliance Center</h2>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {(user.role === 'admin' || user.role === 'manager') && (
-                    <button onClick={() => setShowShareModal(true)} disabled={!selectedEmployee} className="flex-1 md:flex-none flex items-center justify-center gap-2 custom-theme-bg text-white px-4 py-3 rounded-xl font-bold shadow-xl disabled:opacity-50 text-xs"><Share2 size={16} /> Share</button>
+                    <button 
+                      onClick={() => setShowShareModal(true)} 
+                      disabled={!selectedEmployee} 
+                      className="flex items-center justify-center gap-2 custom-theme-bg text-white px-4 py-3 rounded-xl font-bold shadow-xl disabled:opacity-50 text-xs no-print"
+                    >
+                      <Share2 size={16} /> Share
+                    </button>
                   )}
-                  <button onClick={() => window.print()} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl font-bold shadow-xl text-xs"><Printer size={16} /> Export</button>
+                  <button 
+                    onClick={handlePrintToPDF}
+                    className="flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl font-bold shadow-xl text-xs no-print"
+                  >
+                    <Printer size={16} /> Export PDF
+                  </button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8">
-                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><Receipt size={20} className="custom-theme-text" /> Payslip Viewer</h3>
-                  {user.role !== 'staff' && (
-                    <select className="w-full border border-slate-200 rounded-xl p-3 mb-6 font-bold text-slate-700 text-xs" onChange={(e) => { const emp = employees.find(emp => emp.id === e.target.value); if (emp) setSelectedEmployee(emp); }} value={selectedEmployee?.id || ""}>
-                      <option value="" disabled>Select Employee</option>
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.payrollNumber})</option>)}
-                    </select>
-                  )}
-                  {selectedEmployee ? (
-                    <div className="overflow-x-auto border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4">
-                      <div className="min-w-[400px] transform scale-90 md:scale-100 origin-top">
-                        <Payslip employee={selectedEmployee} record={latestSelectedEmployeeRecord || { ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), id: 'STUB', employeeId: selectedEmployee.id, payrollRef: 'PREVIEW-STUB', month: new Date().getMonth(), year: new Date().getFullYear(), processedAt: new Date().toISOString() } as PayrollRecord} brand={brandSettings} />
+
+              {/* Content that will be exported to PDF */}
+              <div className="print-content">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 print:grid-cols-1">
+                  {/* Payslip Viewer */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8 print:shadow-none print:border-0">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 print:text-base">
+                      <Receipt size={20} className="custom-theme-text" /> Payslip Viewer
+                    </h3>
+                    {user.role !== 'staff' && (
+                      <select 
+                        className="w-full border border-slate-200 rounded-xl p-3 mb-6 font-bold text-slate-700 text-xs no-print" 
+                        onChange={(e) => { 
+                          const emp = employees.find(emp => emp.id === e.target.value); 
+                          if (emp) setSelectedEmployee(emp); 
+                        }} 
+                        value={selectedEmployee?.id || ""}
+                      >
+                        <option value="" disabled>Select Employee</option>
+                        {employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.payrollNumber})</option>)}
+                      </select>
+                    )}
+                    {selectedEmployee ? (
+                      <div className="border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4 print:border-0 print:bg-white print:p-0">
+                        <div className="w-full print:w-full">
+                          <Payslip 
+                            employee={selectedEmployee} 
+                            record={latestSelectedEmployeeRecord || { 
+                              ...calculatePayroll(selectedEmployee.basicSalary, selectedEmployee.benefits), 
+                              id: 'STUB', 
+                              employeeId: selectedEmployee.id, 
+                              payrollRef: 'PREVIEW-STUB', 
+                              month: new Date().getMonth(), 
+                              year: new Date().getFullYear(), 
+                              processedAt: new Date().toISOString() 
+                            } as PayrollRecord} 
+                            brand={brandSettings} 
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ) : <div className="py-20 text-center text-slate-400 text-xs italic">Select a member to view.</div>}
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8">
-                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><FileText size={20} className="text-indigo-500" /> P9 Tax Summary</h3>
-                  {selectedEmployee ? (
-                    <div className="overflow-x-auto border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4">
-                      <div className="min-w-[600px] h-[400px] md:h-[500px]">
-                        <P9Form employee={selectedEmployee} records={accessiblePayroll.filter(r => r.employeeId === selectedEmployee.id)} brand={brandSettings} />
+                    ) : (
+                      <div className="py-20 text-center text-slate-400 text-xs italic print:py-10">
+                        Select a member to view.
                       </div>
-                    </div>
-                  ) : <div className="py-20 text-center text-slate-400 text-xs italic">Personnel selection required.</div>}
+                    )}
+                  </div>
+
+                  {/* P9 Tax Summary */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-8 print:shadow-none print:border-0">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 print:text-base">
+                      <FileText size={20} className="text-indigo-500" /> P9 Tax Summary
+                    </h3>
+                    {selectedEmployee ? (
+                      <div className="border border-slate-100 rounded-xl bg-slate-50/50 p-2 md:p-4 print:border-0 print:bg-white print:p-0">
+                        <div className="w-full print:w-full">
+                          <P9Form 
+                            employee={selectedEmployee} 
+                            records={accessiblePayroll.filter(r => r.employeeId === selectedEmployee.id)} 
+                            brand={brandSettings} 
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-20 text-center text-slate-400 text-xs italic print:py-10">
+                        Personnel selection required.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -893,13 +1211,16 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* --- MODALS --- */}
+        {/* ──────────────────────────────────────────────── */}
+        {/* MODALS (completely unchanged) */}
+        {/* ──────────────────────────────────────────────── */}
+
         {showAddEmployee && (user?.role === 'admin' || user?.role === 'manager') && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[2000] flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in">
             <div className="bg-white rounded-t-[30px] md:rounded-[40px] shadow-2xl w-full max-w-3xl overflow-hidden animate-in slide-in-from-bottom md:zoom-in-95 flex flex-col h-[95vh] md:max-h-[90vh]">
               <div className="bg-slate-900 p-6 md:p-10 text-white flex justify-between items-center relative shrink-0">
                 <div><h3 className="text-xl md:text-3xl font-black">{editingEmployee ? 'Update Profile' : 'Onboard User'}</h3><p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-[9px] md:text-[11px]">Secure System Entry</p></div>
-                <button onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="text-slate-400 hover:text-white text-3xl">&times;</button>
+                <button onClick={() => { setShowAddEmployee(false); setEditingEmployee(null); }} className="text-slate-400 hover:text-white text-3xl">×</button>
               </div>
               <form onSubmit={async (e) => {
                 e.preventDefault();
@@ -960,7 +1281,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* ... (Existing Detail and Leave Modals) */}
         {showDetailModal && selectedEmployee && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[1500] flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in">
             <div className="bg-white rounded-t-[30px] md:rounded-[40px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in slide-in-from-bottom md:zoom-in-95 flex flex-col h-[95vh] md:max-h-[90vh]">
@@ -994,7 +1314,6 @@ const App: React.FC = () => {
                       </div>
                    </div>
                 </section>
-                {/* ... (Existing sections) */}
                 <section className="bg-white p-5 md:p-6 rounded-2xl md:rounded-3xl border border-slate-200 shadow-sm">
                    <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><PlaneTakeoff size={12}/> Leave Balance</h4>
                    <div className="grid grid-cols-3 gap-2 md:gap-6">
@@ -1037,7 +1356,17 @@ const App: React.FC = () => {
               <div className="p-4 md:p-8 border-t border-slate-100 bg-white grid grid-cols-2 md:flex gap-3 md:gap-4 shrink-0">
                 <button onClick={() => { setShowPayslipModal(true); setShowDetailModal(false); }} className="bg-slate-900 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2"><FileIcon size={16} /> Payslip</button>
                 {(user.role === 'admin' || user.role === 'manager') && (
-                  <button onClick={() => { setEditingEmployee(selectedEmployee); setShowAddEmployee(true); setShowDetailModal(false); }} className="bg-slate-100 text-slate-600 font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2"><Edit2 size={16} /> Edit</button>
+                  <>
+                    <button onClick={() => { setEditingEmployee(selectedEmployee); setShowAddEmployee(true); setShowDetailModal(false); }} className="bg-slate-100 text-slate-600 font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2"><Edit2 size={16} /> Edit</button>
+                    {selectedEmployee?.isActive !== false && (
+                      <button 
+                        onClick={() => handleTerminateEmployee(selectedEmployee.id)} 
+                        className="bg-red-600 hover:bg-red-700 text-white font-black py-4 rounded-xl md:rounded-2xl uppercase tracking-widest text-[9px] md:text-xs flex items-center justify-center gap-2 shadow-xl"
+                      >
+                        <Trash2 size={16} /> Terminate
+                      </button>
+                    )}
+                  </>
                 )}
                 <button onClick={() => setShowDetailModal(false)} className="col-span-2 custom-theme-bg text-white font-black py-4 rounded-xl md:rounded-2xl shadow-xl uppercase tracking-widest text-[9px] md:text-xs">Close</button>
               </div>

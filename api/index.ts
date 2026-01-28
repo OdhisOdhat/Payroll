@@ -1,157 +1,119 @@
-// server.ts (or index.ts)
-import 'dotenv/config';
-import express, { Request, Response, NextFunction } from 'express';
-import pg from 'pg';
-import cors from 'cors';
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-const { Pool } = pg;
+export class GeminiService {
+  /**
+   * Generates a tax deduction explanation using Gemini.
+   */
+  async explainDeductions(salary: number, results: any) {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL_NON_POOLING,
-  ssl: process.env.NODE_ENV === 'production' 
-    ? { rejectUnauthorized: false }
-    : false,
-  max: 20,                    // keep connection pool under control
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
-
-const app = express();
-
-// Middleware
-app.use(express.json({ limit: '1mb' }));
-app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
-  credentials: true,
-}));
-
-// Health check
-app.get('/api/health', (_req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    database: !!process.env.POSTGRES_URL_NON_POOLING,
-    environment: process.env.NODE_ENV || 'development',
-  });
-});
-
-// Error handler (basic)
-const errorHandler = (err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Server error:', err);
-  const status = err.status || 500;
-  res.status(status).json({
-    success: false,
-    error: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
-  });
-};
-
-// ────────────────────────────────────────────────
-// Auth – temporary hardcoded bypass (for dev only)
-// In production: replace with proper JWT / session / OAuth
-// ────────────────────────────────────────────────
-app.post('/api/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password required' });
-    }
-
-    const userEmail = email.toLowerCase().trim();
-
-    // === ADMIN BYPASS (development only) ===
-    if (userEmail === 'admin@payrollpro.com' && password === 'password123') {
-      return res.json({
-        success: true,
-        user: {
-          id: 'admin-001',
-          email: 'admin@payrollpro.com',
-          role: 'admin',
-          firstName: 'System',
-          lastName: 'Admin',
-          // token: '...' ← add JWT in real implementation
-        }
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Explain the payroll deductions for a monthly gross salary of KES ${salary.toLocaleString()}. 
+        The calculated values are: PAYE: ${results.paye}, NSSF: ${results.nssf}, SHA: ${results.sha}, Housing Levy: ${results.housingLevy}. 
+        Provide a concise, professional explanation of why these amounts are charged based on current Kenyan tax laws (2024). Keep it under 150 words.`,
       });
+      return response.text;
+    } catch (error) {
+      console.error("Gemini Explanation Error:", error);
+      return "Could not generate AI explanation at this time.";
     }
+  }
 
-    // === MANAGER BYPASS (development only) ===
-    if (userEmail === 'manager@payrollpro.com' && password === 'manager123') {
-      return res.json({
-        success: true,
-        user: {
-          id: 'mgr-001',
-          email: 'manager@payrollpro.com',
-          role: 'manager',
-          firstName: 'Operations',
-          lastName: 'Manager',
-          // token: '...' ← add JWT in real implementation
-        }
+  /**
+   * Provides personalized tax optimization advice for a Kenyan employee.
+   */
+  async getTaxOptimizationAdvice(salary: number, benefits: number, results: any) {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Act as a senior Kenyan tax consultant. Analyze this employee's monthly figures:
+        Basic Salary: KES ${salary.toLocaleString()}
+        Benefits: KES ${benefits.toLocaleString()}
+        PAYE Tax: KES ${results.paye.toLocaleString()}
+        NSSF: KES ${results.nssf.toLocaleString()}
+        
+        Provide 3-4 specific, actionable tips for tax optimization or compliance in Kenya (2024). 
+        Mention specific instruments like Voluntary Pension contributions, Life Insurance relief, or Home Ownership Savings Plans (HOSP) where applicable. 
+        Format as clear bullet points. Keep it professional and strictly Kenyan context. Max 120 words.`,
       });
+      return response.text;
+    } catch (error) {
+      console.error("Gemini Advice Error:", error);
+      return "Unable to retrieve tax optimization insights at this moment.";
     }
-
-    // Real DB login would go here (bcrypt + users table)
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid email or password'
-    });
-
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Server error during login' });
   }
-});
 
-// ────────────────────────────────────────────────
-// Employees – basic listing
-// ────────────────────────────────────────────────
-app.get('/api/employees', async (_req: Request, res: Response) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        id,
-        payroll_number,
-        first_name,
-        last_name,
-        email,
-        kra_pin,
-        nssf_number,
-        nhif_number,
-        basic_salary,
-        benefits,
-        joined_date,
-        created_at,
-        updated_at
-      FROM employees
-      ORDER BY last_name, first_name
-    `);
+  /**
+   * Generates a detailed AI breakdown of P9 form components and their tax implications.
+   */
+  async generateP9Breakdown(employeeName: string, salary: number, benefits: number, results: any) {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-    return res.json({
-      success: true,
-      data: result.rows,
-      count: result.rowCount,
-    });
-  } catch (err: any) {
-    console.error('Error fetching employees:', err.message);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch employees',
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    });
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `Act as an expert Kenyan Tax Auditor. Provide a detailed P9 Form breakdown for ${employeeName} based on these monthly figures:
+        Gross Salary: KES ${(salary + benefits).toLocaleString()}
+        PAYE: KES ${results.paye.toLocaleString()}
+        NSSF (Tax Exempt): KES ${results.nssf.toLocaleString()}
+        Personal Relief: KES ${results.personalRelief.toLocaleString()}
+        SHA: KES ${results.sha.toLocaleString()}
+        Housing Levy: KES ${results.housingLevy.toLocaleString()}
+
+        Explain:
+        1. How 'Defined Contribution' (NSSF) reduces taxable income.
+        2. The impact of the 'Personal Relief' on the final PAYE.
+        3. The implications of mandatory levies (SHA & Housing) as non-tax-deductible items.
+        4. A brief summary of how this looks on an annual P9 card.
+        
+        Format as professional technical notes with clear headings. Max 200 words.`,
+      });
+      return response.text;
+    } catch (error) {
+      console.error("Gemini P9 Breakdown Error:", error);
+      return "The AI tax auditor is currently unavailable. Please try again later.";
+    }
   }
-});
 
-// Add more protected routes later (with middleware)
-// Example structure:
-// app.get('/api/payroll/:year/:month', authenticate, authorize('manager'), ...)
+  /**
+   * Drafts a professional email for sharing a payslip.
+   */
+  async draftShareEmail(employeeName: string, month: string, year: number) {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Draft a very brief, highly professional email body to accompany a payslip being sent to ${employeeName} for the period of ${month} ${year}. 
+        Mention that the document is confidential and the link provided is secure. Do not include subject line, just the body. Max 60 words.`,
+      });
+      return response.text;
+    } catch (error) {
+      console.error("Gemini Drafting Error:", error);
+      return `Please find attached your payslip for ${month} ${year}. This is a confidential document.`;
+    }
+  }
 
+  // --- NEW MERGED METHOD ---
+  /**
+   * Drafts a professional exit or offboarding notification.
+   */
+  async draftExitEmail(employeeName: string, reason: string) {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Draft a professional, neutral offboarding email for ${employeeName}. 
+        Reason: ${reason}. Mention HR will contact them regarding final dues. Max 80 words.`,
+      });
+      return response.text;
+    } catch (error) {
+      return `Offboarding notice for ${employeeName}. Please contact HR for the next steps.`;
+    }
+  }
+}
 
-// Global error handler (must be last)
-app.use(errorHandler);
-
-// Start server
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} | Env: ${process.env.NODE_ENV || 'development'}`);
-});
-
-export default app;
+export const geminiService = new GeminiService();
