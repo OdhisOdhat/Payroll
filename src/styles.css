@@ -1,0 +1,138 @@
+/* ============================================
+   TAILWIND BASE + CUSTOM VARIABLES + OVERRIDES
+   ============================================ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ======================
+   Custom Theme Variables
+   ====================== */
+:root {
+  --primary-color: #2563eb;           /* blue-600 default */
+  --primary-color-light: #2563eb33;   /* blue-600 with 20% opacity */
+  --primary-color-dark: #1e40af;      /* darker hover variant */
+  
+  --background: #f8fafc;              /* slate-50 */
+  --surface: #ffffff;
+  --text-primary: #0f172a;            /* slate-900 */
+  --text-secondary: #64748b;          /* slate-500 */
+  
+  --border: #e2e8f0;                  /* slate-200 */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/* Dark mode support (optional – toggle via class="dark" on html/body) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;            /* slate-900 */
+    --surface: #1e293b;               /* slate-800 */
+    --text-primary: #f1f5f9;          /* slate-100 */
+    --text-secondary: #94a3b8;        /* slate-400 */
+    --border: #334155;                /* slate-700 */
+  }
+}
+
+/* Apply global background & text */
+@layer base {
+  body {
+    @apply bg-[var(--background)] text-[var(--text-primary)] min-h-screen;
+    font-feature-settings: "liga" 1, "calt" 1;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+/* =====================================
+   Custom component classes (if needed)
+   ===================================== */
+
+.custom-theme-bg {
+  background-color: var(--primary-color);
+}
+
+.custom-theme-text {
+  color: var(--primary-color);
+}
+
+.custom-theme-border {
+  border-color: var(--primary-color);
+}
+
+.custom-theme-bg-hover:hover {
+  background-color: var(--primary-color-dark);
+}
+
+/* Fix for print styles – hide UI elements */
+@media print {
+  body > *:not(.print-content) {
+    display: none !important;
+  }
+  
+  .print-content,
+  .print-content * {
+    visibility: visible !important;
+    display: block !important;
+    position: static !important;
+    transform: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 8px 0 !important;
+    box-sizing: border-box;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  header, aside, nav, footer, button, select, .overflow-x-auto, .overflow-hidden {
+    display: none !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm;
+  }
+}
+
+/* Improve scrollbar appearance (optional) */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Mobile menu overlay fade */
+.animate-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Responsive table fixes */
+@media (max-width: 768px) {
+  table {
+    font-size: 0.875rem;
+  }
+  
+  th, td {
+    padding: 0.75rem !important;
+  }
+}
