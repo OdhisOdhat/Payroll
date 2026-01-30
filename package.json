@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n FRONT,BACK \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "vite",
-    "dev:backend": "tsx watch server.ts",
+    "dev:backend": "tsx watch api/index.ts",
     "start": "node dist/server/server.js",
     "build": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
@@ -31,13 +31,13 @@
     "@vitejs/plugin-react": "^4.3.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "lucide-react": "^0.460.0",
     "pg": "^8.11.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "vite": "^7.3.1",
-    "xlsx": "^0.18.5"
+    "vite": "^7.3.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -46,10 +46,10 @@
     "@types/pg": "^8.11.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "autoprefixer": "^10.4.23",
+    "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.1",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
     "tsx": "^4.15.7",
     "typescript": "^5.5.2"
   },

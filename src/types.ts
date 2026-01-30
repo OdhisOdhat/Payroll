@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'staff' | 'tax' | 'manager';
+export type UserRole = 'admin' | 'staff' | 'tax' | 'manager'
 
 export interface User {
   id: string;
@@ -11,7 +11,7 @@ export interface User {
 
 export interface Employee {
   id: string;
-  payrollNumber: string; // Unique employee payroll/staff number
+  payrollNumber: string; // Unique employee payroll/staff nu
   firstName: string;
   lastName: string;
   email: string;
@@ -23,11 +23,15 @@ export interface Employee {
   totalLeaveDays: number;
   remainingLeaveDays: number;
   joinedDate: string;
-  
-  // --- New Onboarding/Termination Fields ---
-  isActive: boolean; 
+
+  // === EMPLOYEE DESIGNATION FIELDS (CRITICAL ADDITION) ===
+  designation?: string; // PRIMARY: Employee role title (fro
+  position?: string;    // BACKEND COMPAT: Maps to designati
+
+  // === Termination Management ===
+  isActive: boolean;
   terminatedAt?: string;      // ISO date string
-  terminationReason?: string; 
+  terminationReason?: string;
 }
 
 export interface LeaveRequest {
@@ -38,7 +42,7 @@ export interface LeaveRequest {
   startDate: string;
   endDate: string;
   reason: string;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'withdrawn';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   requestedAt: string;
 }
 
@@ -46,10 +50,10 @@ export interface PayrollRecord {
   id: string;
   employeeId: string;
   payrollRef: string; // e.g. PAY-202501-EMP0047
-  month: number; // 1-12 (aligned with DB schema logic)
+  month: number; // 0-11 (JavaScript Date months - matches A
   year: number;
   grossSalary: number;
-  benefits: number; 
+  benefits: number;
   nssf: number;
   taxableIncome: number;
   paye: number;
@@ -67,13 +71,13 @@ export interface PayrollAudit {
   userRole: string;
   action: string;
   entityType?: string; // e.g. 'employee', 'payroll'
-  entityId?: string;   // Reference to the affected record
+  entityId?: string;   // Reference to the affected recor
   details: string;
   timestamp: string;
 }
 
 export interface BrandSettings {
-  entityName: string;
+  entityName: string;   // ✅ OFFICIAL COMPANY NAME FIELD
   logoUrl: string;
   primaryColor: string;
   address: string;

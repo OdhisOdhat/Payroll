@@ -1,5 +1,5 @@
 
-import { Employee } from '../types';
+import { Employee } from '../src/types';
 
 /**
  * Downloads a CSV template for employee imports.

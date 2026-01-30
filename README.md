@@ -21,7 +21,7 @@ An advanced, AI-powered Payroll Management System tailored for the Kenyan statut
 
 - **Frontend**: React (v19), Tailwind CSS, Lucide Icons.
 - **Backend**: Node.js, Express.
-- **Database**: Turso (LibSQL/SQLite).
+- **Database**: Supabase (Postgresql) (LibSQL/SQLite).
 - **AI**: Google Gemini (via `@google/genai`).
 - **Module Management**: Native ESM with Import Maps.
 

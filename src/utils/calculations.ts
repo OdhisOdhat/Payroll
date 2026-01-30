@@ -1,5 +1,5 @@
 import { TAX_CONSTANTS } from '../constants';
-import { PayrollRecord } from '../types';
+import { PayrollRecord } from '../src/types';
 
 interface NSSFConfig {
   lowerEarningsLimit: number;
@@ -85,7 +85,10 @@ export const calculatePayroll = (
   let paye = Math.max(0, grossTax - personalRelief);
 
   // 6. Net salary (before other voluntary deductions)
-  let netSalary = grossSalary - paye - nssf - housingLevy - sha - TAX_CONSTANTS.NITA_LEVY;
+  // ────────────────────────────────────────────────
+  // Removed NITA_LEVY subtraction since it's not shown in the payslip
+  // and was causing the total deductions to be 50 higher than visible sum
+  let netSalary = grossSalary - paye - nssf - housingLevy - sha;
 
   // ────────────────────────────────────────────────
   // Optional rounding – create rounded versions instead of mutating originals
