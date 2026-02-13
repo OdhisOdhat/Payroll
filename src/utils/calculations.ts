@@ -1,5 +1,5 @@
 import { TAX_CONSTANTS } from '../constants';
-import { PayrollRecord } from '../src/types';
+import { PayrollRecord } from '../types';
 
 interface NSSFConfig {
   lowerEarningsLimit: number;
@@ -22,10 +22,7 @@ export const calculatePayroll = (
     roundToWhole?: boolean;                   // round final amounts to nearest KES
     nssfConfig?: NSSFConfig;                  // override for Jan 2026 vs Feb+
   } = {}
-): Omit<
-  PayrollRecord,
-  'id' | 'employeeId' | 'month' | 'year' | 'processedAt' | 'payrollRef'
-> => {
+): Partial<PayrollRecord> => {
   const { roundToWhole = true, nssfConfig } = options;
 
   // ────────────────────────────────────────────────

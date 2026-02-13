@@ -1,16 +1,22 @@
+import { GoogleGenAI } from '@google/genai';
 
-import { GoogleGenAI } from "@google/genai";
+const GENAI_API_KEY = import.meta.env.VITE_API_KEY;
 
 export class GeminiService {
   /**
    * Generates a tax deduction explanation using Gemini.
    */
   async explainDeductions(salary: number, results: any) {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!GENAI_API_KEY) {
+      console.warn('Gemini API key not configured');
+      return "Could not generate AI explanation at this time.";
+    }
+
+    const ai = new GoogleGenAI({ apiKey: GENAI_API_KEY });
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-1.5-flash',  // or 'gemini-1.5-flash-preview' if still using preview
         contents: `Explain the payroll deductions for a monthly gross salary of KES ${salary.toLocaleString()}. 
         The calculated values are: PAYE: ${results.paye}, NSSF: ${results.nssf}, SHA: ${results.sha}, Housing Levy: ${results.housingLevy}. 
         Provide a concise, professional explanation of why these amounts are charged based on current Kenyan tax laws (2024). Keep it under 150 words.`,
@@ -26,11 +32,16 @@ export class GeminiService {
    * Provides personalized tax optimization advice for a Kenyan employee.
    */
   async getTaxOptimizationAdvice(salary: number, benefits: number, results: any) {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!GENAI_API_KEY) {
+      console.warn('Gemini API key not configured');
+      return "Unable to retrieve tax optimization insights at this moment.";
+    }
+
+    const ai = new GoogleGenAI({ apiKey: GENAI_API_KEY });
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview', // Using pro for better reasoning
+        model: 'gemini-1.5-pro',  // or 'gemini-1.5-pro-preview' — pro for better reasoning
         contents: `Act as a senior Kenyan tax consultant. Analyze this employee's monthly figures:
         Basic Salary: KES ${salary.toLocaleString()}
         Benefits: KES ${benefits.toLocaleString()}
@@ -52,11 +63,16 @@ export class GeminiService {
    * Generates a detailed AI breakdown of P9 form components and their tax implications.
    */
   async generateP9Breakdown(employeeName: string, salary: number, benefits: number, results: any) {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!GENAI_API_KEY) {
+      console.warn('Gemini API key not configured');
+      return "The AI tax auditor is currently unavailable. Please try again later.";
+    }
+
+    const ai = new GoogleGenAI({ apiKey: GENAI_API_KEY });
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-1.5-pro',
         contents: `Act as an expert Kenyan Tax Auditor. Provide a detailed P9 Form breakdown for ${employeeName} based on these monthly figures:
         Gross Salary: KES ${(salary + benefits).toLocaleString()}
         PAYE: KES ${results.paye.toLocaleString()}
@@ -84,10 +100,16 @@ export class GeminiService {
    * Drafts a professional email for sharing a payslip.
    */
   async draftShareEmail(employeeName: string, month: string, year: number) {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    if (!GENAI_API_KEY) {
+      console.warn('Gemini API key not configured');
+      return `Please find attached your payslip for ${month} ${year}. This is a confidential document.`;
+    }
+
+    const ai = new GoogleGenAI({ apiKey: GENAI_API_KEY });
+
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-1.5-flash',
         contents: `Draft a very brief, highly professional email body to accompany a payslip being sent to ${employeeName} for the period of ${month} ${year}. 
         Mention that the document is confidential and the link provided is secure. Do not include subject line, just the body. Max 60 words.`,
       });

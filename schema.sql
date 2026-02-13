@@ -1,5 +1,5 @@
 -- =============================================================================
--- Employees Table (Updated with Onboarding/Termination fields)
+-- Employees Table (Updated with designation + company_name)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS employees (
     id                   TEXT PRIMARY KEY,
@@ -17,37 +17,51 @@ CREATE TABLE IF NOT EXISTS employees (
     total_leave_days     INTEGER NOT NULL DEFAULT 21,
     remaining_leave_days INTEGER NOT NULL DEFAULT 21,
     
-    joined_date          TEXT,
+    joined_date          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    -- NEW: Status and Termination tracking
-    is_active            BOOLEAN NOT NULL DEFAULT 1,        -- 1 for active, 0 for terminated
-    terminated_at        TEXT,                              -- ISO date (YYYY-MM-DD)
-    termination_reason   TEXT,                              -- Reason for offboarding
+    -- Status and Termination tracking
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE,
+    terminated_at        TIMESTAMP,
+    termination_reason   TEXT,
     
-    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    -- NEW: Designation (job title/position)
+    designation          TEXT NOT NULL DEFAULT 'Staff',
+    
+    -- NEW: Company name (in case of multi-company setup in future)
+    company_name         TEXT,
+    
+    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Indexes (recommended for performance)
+CREATE INDEX IF NOT EXISTS idx_employees_payroll_number ON employees(payroll_number);
+CREATE INDEX IF NOT EXISTS idx_employees_is_active ON employees(is_active);
+CREATE INDEX IF NOT EXISTS idx_employees_designation ON employees(designation);
+CREATE INDEX IF NOT EXISTS idx_employees_last_name_first_name ON employees(last_name, first_name);
+
+
 -- =============================================================================
--- Leave Requests (No changes needed, references active/inactive employees)
+-- Leave Requests (unchanged)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS leave_requests (
     id           TEXT PRIMARY KEY,
     employee_id  TEXT NOT NULL,
-    start_date   TEXT NOT NULL,
-    end_date     TEXT NOT NULL,
+    start_date   DATE NOT NULL,
+    end_date     DATE NOT NULL,
     reason       TEXT,
     status       TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'withdrawn')),
-    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (employee_id) REFERENCES employees(id)
-        ON DELETE RESTRICT -- Prevents deleting employees with leave history
+        ON DELETE RESTRICT
         ON UPDATE CASCADE
 );
 
+
 -- =============================================================================
--- Payroll Records (Preserves data even if employee is terminated)
+-- Payroll Records (unchanged)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS payroll_records (
     id              TEXT PRIMARY KEY,
@@ -67,34 +81,59 @@ CREATE TABLE IF NOT EXISTS payroll_records (
     nita            REAL NOT NULL DEFAULT 0.00,
     net_salary      REAL NOT NULL,
     
-    processed_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    processed_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (employee_id) REFERENCES employees(id)
-        ON DELETE RESTRICT -- Critical: Keeps payroll history intact
-        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    
+    CONSTRAINT unique_payroll_per_month UNIQUE (employee_id, year, month)
 );
 
+
 -- =============================================================================
--- Payroll Audit Trail (Will log "Terminate" actions)
+-- Payroll Audit Trail (unchanged)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS payroll_audits (
     id           TEXT PRIMARY KEY,
     performed_by TEXT NOT NULL,
     user_role    TEXT NOT NULL,
-    action       TEXT NOT NULL, -- e.g., 'TERMINATE_EMPLOYEE' or 'ONBOARD_EMPLOYEE'
+    action       TEXT NOT NULL,
     entity_type  TEXT,
     entity_id    TEXT,
     details      TEXT,
     ip_address   TEXT,
-    timestamp    TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+
 -- =============================================================================
--- Application Settings
+-- Application Settings (unchanged)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS settings (
     key          TEXT PRIMARY KEY,
     value        TEXT NOT NULL,
     description  TEXT,
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+
+-- =============================================================================
+-- Admins Table (Separate from Supabase Auth - for local admin management)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS admins (
+    id                   TEXT PRIMARY KEY,
+    email                TEXT UNIQUE NOT NULL,
+    password_hash        TEXT NOT NULL,
+    first_name           TEXT,
+    last_name            TEXT,
+    role                 TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'manager', 'auditor')),
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login           TIMESTAMP,
+    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for admin lookups
+CREATE INDEX IF NOT EXISTS idx_admins_email ON admins(email);
+CREATE INDEX IF NOT EXISTS idx_admins_is_active ON admins(is_active);

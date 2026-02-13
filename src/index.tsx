@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.js';
+import App from './App'; // Removed .js extension to allow Vite to resolve App.tsx
 
 // Import global styles (Tailwind + custom rules)
 import './styles.css';
@@ -19,8 +19,7 @@ const root = ReactDOM.createRoot(rootElement);
 
 root.render(
   <React.StrictMode>
-    {/* 
-      Example of future provider wrapping (uncomment when needed):
+    {/* Example of future provider wrapping (uncomment when needed):
       
       <BrowserRouter>
         <QueryClientProvider client={new QueryClient()}>
