@@ -20,8 +20,11 @@ export const EmployeeProvider = ({ children }: { children: React.ReactNode }) =>
   const loadEmployees = async () => {
     setIsLoading(true);
     try {
+      console.log('[useEmployees] loadEmployees called - fetching from backend');
       const data = await apiService.getEmployees();
+      console.log('[useEmployees] Got data from apiService:', Array.isArray(data) ? `${data.length} employees` : data);
       setEmployees(Array.isArray(data) ? data : []);
+      console.log('[useEmployees] Updated employees state');
     } catch (error) {
       console.error('Failed to load employees:', error);
     } finally {

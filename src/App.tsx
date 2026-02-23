@@ -16,6 +16,7 @@ import Dashboard from './components/dashboard/Dashboard';
 import EmployeeList from './components/employees/EmployeeList';
 import PayrollHistory from './components/payroll/PayrollHistory';
 import LeaveManagement from './components/leave/LeaveManagement';
+import PayrollReports from './components/reports/PayrollReports';
 import SettingsPage from './components/settings/SettingsPage';
 
 const AppContent: React.FC = () => {
@@ -46,6 +47,7 @@ const AppContent: React.FC = () => {
         <Route path="/employees" element={<EmployeeList />} />
         <Route path="/payroll" element={<PayrollHistory />} />
         <Route path="/leave" element={<LeaveManagement />} />
+        <Route path="/reports" element={<PayrollReports />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Dashboard />} />
       </Route>

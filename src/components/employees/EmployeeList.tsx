@@ -36,12 +36,12 @@ const EmployeeList: React.FC = () => {
     if (!searchQuery) return true;
     const term = searchQuery.toLowerCase();
     return (
-      emp.firstName.toLowerCase().includes(term) ||
-      emp.lastName.toLowerCase().includes(term) ||
-      emp.email.toLowerCase().includes(term) ||
-      emp.kraPin.toLowerCase().includes(term) ||
-      emp.payrollNumber.toLowerCase().includes(term) ||
-      (emp.designation && emp.designation.toLowerCase().includes(term))
+      (emp.firstName || '').toLowerCase().includes(term) ||
+      (emp.lastName || '').toLowerCase().includes(term) ||
+      (emp.email || '').toLowerCase().includes(term) ||
+      (emp.kraPin || '').toLowerCase().includes(term) ||
+      (emp.payrollNumber || '').toLowerCase().includes(term) ||
+      ((emp.designation || '').toLowerCase().includes(term))
     );
   });
 
@@ -158,7 +158,28 @@ const EmployeeList: React.FC = () => {
         onTerminateEmployee={async (id) => {
           if (window.confirm('Terminate this employee? This will deactivate their record but preserve history.')) {
             const reason = window.prompt('Enter termination reason (optional):') || null;
-            // Implementation would use terminateEmployee from hook
+            try {
+              const token = localStorage.getItem('payroll_token');
+              const response = await fetch(`http://127.0.0.1:4000/api/employees/${id}/terminate`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(token && { 'Authorization': `Bearer ${token}` }),
+                },
+                body: JSON.stringify({ reason }),
+              });
+
+              if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to terminate employee');
+              }
+
+              await refetch();
+              alert('Employee terminated successfully');
+            } catch (error) {
+              console.error('Terminate employee error:', error);
+              alert(`Failed to terminate employee: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
           }
         }}
         userRole={user.role}
@@ -185,7 +206,32 @@ const EmployeeList: React.FC = () => {
             setShowDetailModal(false);
           }}
           onTerminate={async () => {
-            // Implementation
+            if (window.confirm('Terminate this employee? This will deactivate their record but preserve history.')) {
+              const reason = window.prompt('Enter termination reason (optional):') || null;
+              try {
+                const token = localStorage.getItem('payroll_token');
+                const response = await fetch(`http://127.0.0.1:4000/api/employees/${selectedEmployee.id}/terminate`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` }),
+                  },
+                  body: JSON.stringify({ reason }),
+                });
+
+                if (!response.ok) {
+                  const error = await response.json();
+                  throw new Error(error.error || 'Failed to terminate employee');
+                }
+
+                setShowDetailModal(false);
+                await refetch();
+                alert('Employee terminated successfully');
+              } catch (error) {
+                console.error('Terminate employee error:', error);
+                alert(`Failed to terminate employee: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              }
+            }
           }}
           userRole={user.role}
         />

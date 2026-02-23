@@ -63,13 +63,13 @@ const EmployeeTable: React.FC<EmployeeTableProps> = ({
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
                         style={{ backgroundColor: brandSettings.primaryColor }}
                       >
-                        {emp.firstName[0]}
+                        {emp.firstName?.[0] ?? ''}
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-slate-800 text-xs truncate">
-                          {emp.firstName} {emp.lastName}
+                          {(emp.firstName || '')} {(emp.lastName || '')}
                         </div>
-                        <div className="text-[10px] text-slate-400 truncate">{emp.email}</div>
+                        <div className="text-[10px] text-slate-400 truncate">{emp.email || ''}</div>
                       </div>
                     </div>
                   </td>

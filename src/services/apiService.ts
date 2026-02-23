@@ -163,7 +163,29 @@ export const apiService = {
         return localStore.getEmployees();
       }
 
-      const data = await res.json();
+      const raw = await res.json();
+      // Supabase sometimes returns an object wrapper like { value: [...], Count: n }
+      const sourceArray = Array.isArray(raw) ? raw : (raw.value || raw.data || []);
+      const data = (sourceArray || []).map((d: any) => ({
+        id: d.id,
+        payrollNumber: d.payroll_number || d.payrollNumber || '',
+        firstName: d.first_name || d.firstName || '',
+        lastName: d.last_name || d.lastName || '',
+        email: d.email || '',
+        kraPin: d.kra_pin || d.kraPin || '',
+        nssfNumber: d.nssf_number || d.nssfNumber || '',
+        nhifNumber: d.nhif_number || d.nhifNumber || '',
+        basicSalary: d.basic_salary ?? d.basicSalary ?? 0,
+        benefits: d.benefits ?? 0,
+        totalLeaveDays: d.total_leave_days ?? d.totalLeaveDays ?? 21,
+        remainingLeaveDays: d.remaining_leave_days ?? d.remainingLeaveDays ?? 21,
+        joinedDate: d.joined_date || d.joinedDate || null,
+        isActive: d.is_active !== undefined ? d.is_active : (d.isActive !== undefined ? d.isActive : true),
+        designation: d.designation || d.position || d.designation || 'Staff',
+        companyName: d.company_name || d.companyName || '',
+        payrollNumberRaw: d.payroll_number,
+      }));
+
       console.log(`[apiService] Loaded ${data.length} employees from backend`);
       localStore.setEmployees(data); // sync to local for offline use
       return data;
@@ -184,21 +206,31 @@ export const apiService = {
 
     try {
       const token = safeStorage.getItem('payroll_token') || '';
+      console.log('[apiService.saveEmployee] Sending POST to /api/employees with token present:', !!token, 'employee:', emp.firstName, emp.payrollNumber);
+      
+      // Exclude 'id' field for new employees - let backend generate UUID
+      const { id, ...payloadWithoutId } = emp;
+      
       const res = await fetchWithTimeout(`/api/employees`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token && { 'Authorization': `Bearer ${token}` })
         },
-        body: JSON.stringify(emp)
+        body: JSON.stringify(payloadWithoutId)
       });
 
+      console.log('[apiService.saveEmployee] Response status:', res.status, res.statusText);
+      
       if (!res.ok) {
         const errorText = await res.text().catch(() => '(no message)');
+        console.error('[apiService.saveEmployee] Error response:', errorText);
         throw new Error(`Save employee failed: ${res.status} - ${errorText}`);
       }
 
-      return await res.json();
+      const result = await res.json();
+      console.log('[apiService.saveEmployee] Saved successfully, result:', result);
+      return result;
     } catch (e: any) {
       console.error("[apiService] saveEmployee error:", e.message);
       return toSave; // optimistic return as complete Employee

@@ -20,6 +20,7 @@ interface FormFieldProps {
   min?: string | number;
   max?: string | number;
   step?: string | number;
+  title?: string;
 }
 
 const FormField: React.FC<FormFieldProps> = ({
@@ -40,6 +41,7 @@ const FormField: React.FC<FormFieldProps> = ({
   min,
   max,
   step,
+  title = '',
 }) => {
   const id = `field-${name}`;
   
@@ -106,6 +108,7 @@ const FormField: React.FC<FormFieldProps> = ({
           min={min}
           max={max}
           step={step}
+          title={title}
           className={`
             w-full px-4 py-3 rounded-xl border-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500
             outline-none transition-all font-medium text-slate-700

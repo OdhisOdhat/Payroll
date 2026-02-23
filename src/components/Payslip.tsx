@@ -9,8 +9,19 @@ interface Props {
 
 const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const currentMonth = monthNames[record.month];
-  const currentYear = record.year;
+  
+  // Extract month and year from payPeriodStart if available, otherwise use record properties
+  let currentMonth: string;
+  let currentYear: number;
+  
+  if (record.payPeriodStart) {
+    const date = new Date(record.payPeriodStart);
+    currentMonth = monthNames[date.getMonth()];
+    currentYear = date.getFullYear();
+  } else {
+    currentMonth = monthNames[record.month] || monthNames[0];
+    currentYear = record.year || new Date().getFullYear();
+  }
 
   return (
     <div className="bg-white p-8 max-w-2xl mx-auto border shadow-sm print:shadow-none print:border-none">
@@ -48,7 +59,7 @@ const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
         <div className="space-y-2">
           <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">NSSF Number:</span> <span className="font-semibold text-xs">{employee.nssfNumber}</span></div>
           <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">SHA Number:</span> <span className="font-semibold text-xs">{employee.nhifNumber}</span></div>
-          <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">Period Ref:</span> <span className="font-bold text-[9px] uppercase">{record.payrollRef}</span></div>
+          <div className="flex justify-between border-b pb-1"><span className="text-slate-400 text-xs">Period Ref:</span> <span className="font-bold text-[9px] uppercase">{record.payrollRef || record.id?.slice(0, 8) || 'N/A'}</span></div>
         </div>
       </div>
 
@@ -58,29 +69,29 @@ const Payslip: React.FC<Props> = ({ employee, record, brand }) => {
           <div className="space-y-2">
             <div className="flex justify-between text-xs"><span>Basic Salary</span> <span>{employee.basicSalary.toLocaleString()}</span></div>
             <div className="flex justify-between text-xs"><span>Benefits / Allowances</span> <span>{(record.benefits || 0).toLocaleString()}</span></div>
-            <div className="flex justify-between font-bold border-t pt-2 text-slate-800 text-sm"><span>Gross Salary</span> <span>{record.grossSalary.toLocaleString()}</span></div>
+            <div className="flex justify-between font-bold border-t pt-2 text-slate-800 text-sm"><span>Gross Salary</span> <span>{(record.grossSalary || record.grossPay || 0).toLocaleString()}</span></div>
           </div>
         </div>
 
         <div>
           <h3 className="text-[10px] font-black uppercase tracking-wider text-red-400 mb-3">Deductions</h3>
           <div className="space-y-2">
-            <div className="flex justify-between text-xs text-slate-600"><span>PAYE Tax</span> <span>{record.paye.toLocaleString()}</span></div>
-            <div className="flex justify-between text-xs text-slate-600"><span>NSSF Tier I & II</span> <span>{record.nssf.toLocaleString()}</span></div>
-            <div className="flex justify-between text-xs text-slate-600"><span>Social Health Authority (SHA)</span> <span>{record.sha.toLocaleString()}</span></div>
-            <div className="flex justify-between text-xs text-slate-600"><span>Affordable Housing Levy</span> <span>{record.housingLevy.toLocaleString()}</span></div>
-            <div className="flex justify-between font-bold border-t pt-2 text-red-600 text-sm"><span>Total Deductions</span> <span>{(record.grossSalary - record.netSalary).toLocaleString()}</span></div>
+            <div className="flex justify-between text-xs text-slate-600"><span>PAYE Tax</span> <span>{(record.paye || 0).toLocaleString()}</span></div>
+            <div className="flex justify-between text-xs text-slate-600"><span>NSSF Tier I & II</span> <span>{(record.nssf || 0).toLocaleString()}</span></div>
+            <div className="flex justify-between text-xs text-slate-600"><span>Social Health Authority (SHA)</span> <span>{(record.sha || 0).toLocaleString()}</span></div>
+            <div className="flex justify-between text-xs text-slate-600"><span>Affordable Housing Levy</span> <span>{(record.housingLevy || 0).toLocaleString()}</span></div>
+            <div className="flex justify-between font-bold border-t pt-2 text-red-600 text-sm"><span>Total Deductions</span> <span>{(((record.grossSalary || record.grossPay || 0) - (record.netSalary || record.netPay || 0))).toLocaleString()}</span></div>
           </div>
         </div>
 
         <div className="p-6 rounded-2xl flex justify-between items-center" style={{ backgroundColor: brand.primaryColor, color: 'white' }}>
           <div>
             <div className="text-[10px] opacity-70 uppercase font-black tracking-widest">Net Salary Payable</div>
-            <div className="text-2xl font-black">KES {record.netSalary.toLocaleString()}</div>
+            <div className="text-2xl font-black">KES {(record.netSalary || record.netPay || 0).toLocaleString()}</div>
           </div>
           <div className="text-right text-[10px] opacity-60 font-bold">
-            Run ID: {record.id.slice(0, 8).toUpperCase()}<br/>
-            Processed: {new Date(record.processedAt).toLocaleDateString()}
+            Run ID: {record.id?.slice(0, 8).toUpperCase() || 'N/A'}<br/>
+            Processed: {record.processedAt ? new Date(record.processedAt).toLocaleDateString() : (record.createdAt ? new Date(record.createdAt).toLocaleDateString() : new Date().toLocaleDateString())}
           </div>
         </div>
       </div>

@@ -13,10 +13,17 @@ const P9Form: React.FC<Props> = ({ employee, records, brand }) => {
 
   // Create full year data with historical benefits and NITA
   const yearlyData = months.map((monthName, idx) => {
-    const record = records.find(r => r.month === idx && r.year === currentYear);
+    const record = records.find(r => {
+      // Support both new backend format (payPeriodStart) and legacy format (month/year)
+      if (r.payPeriodStart) {
+        const date = new Date(r.payPeriodStart);
+        return date.getMonth() === idx && date.getFullYear() === currentYear;
+      }
+      return r.month === idx && r.year === currentYear;
+    });
     return {
       month: monthName,
-      gross: record?.grossSalary || 0,
+      gross: record?.grossSalary || record?.grossPay || 0,
       benefits: record?.benefits || 0,
       nssf: record?.nssf || 0,
       taxable: record?.taxableIncome || 0,

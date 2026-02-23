@@ -12,6 +12,8 @@ interface EmployeeFormModalProps {
   onSuccess: () => void;
 }
 
+// Payroll numbers are now assigned by the backend. Do not generate on the client.
+
 const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
   employee,
   onClose,
@@ -19,30 +21,16 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
 }) => {
   const { brandSettings } = useBrandSettings();
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    payrollNumber: employee?.payrollNumber || '',
-    companyName: (employee as any)?.companyName || '',
-    firstName: employee?.firstName || '',
-    lastName: employee?.lastName || '',
-    designation: employee?.designation || employee?.position || 'Staff',
-    email: employee?.email || '',
-    kraPin: employee?.kraPin || '',
-    nssfNumber: employee?.nssfNumber || '',
-    nhifNumber: employee?.nhifNumber || '',
-    basicSalary: employee?.basicSalary?.toString() || '',
-    benefits: (employee?.benefits || 0).toString(),
-    totalLeaveDays: (employee?.totalLeaveDays || 21).toString(),
-    remainingLeaveDays: (employee?.remainingLeaveDays || employee?.totalLeaveDays || 21).toString(),
-  });
 
-  useEffect(() => {
+  // Initialize form data with generated payroll number for new employees
+  const getInitialFormData = () => {
     if (employee) {
-      setFormData({
+      return {
         payrollNumber: employee.payrollNumber || '',
-        companyName: (employee as any).companyName || '',
+        companyName: (employee as any)?.companyName || '',
         firstName: employee.firstName || '',
         lastName: employee.lastName || '',
-        designation: employee.designation || employee.position || 'Staff',
+        designation: employee.designation || employee?.position || 'Staff',
         email: employee.email || '',
         kraPin: employee.kraPin || '',
         nssfNumber: employee.nssfNumber || '',
@@ -51,7 +39,31 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         benefits: (employee.benefits || 0).toString(),
         totalLeaveDays: (employee.totalLeaveDays || 21).toString(),
         remainingLeaveDays: (employee.remainingLeaveDays || employee.totalLeaveDays || 21).toString(),
-      });
+      };
+    }
+    // For new employees leave payrollNumber empty; server will assign EMP-####
+    return {
+      payrollNumber: '',
+      companyName: '',
+      firstName: '',
+      lastName: '',
+      designation: 'Staff',
+      email: '',
+      kraPin: '',
+      nssfNumber: '',
+      nhifNumber: '',
+      basicSalary: '',
+      benefits: '0',
+      totalLeaveDays: '21',
+      remainingLeaveDays: '21',
+    };
+  };
+
+  const [formData, setFormData] = useState(getInitialFormData());
+
+  useEffect(() => {
+    if (employee) {
+      setFormData(getInitialFormData());
     }
   }, [employee]);
 
@@ -59,6 +71,8 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
     e.preventDefault();
     
     // Validation
+    const isUpdate = !!employee;
+
     if (!formData.firstName || !formData.lastName) {
       alert('First name and last name are required.');
       return;
@@ -69,14 +83,20 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
       return;
     }
 
+    // Only require payroll number when updating an existing employee
+    if (isUpdate && (!formData.payrollNumber || formData.payrollNumber.trim() === '')) {
+      alert('Payroll number is required for updates.');
+      return;
+    }
+
+    // No client-side payroll number duplication check — backend assigns payroll numbers.
+
     setIsLoading(true);
 
     try {
       // Prepare employee data
-      const employeeData = {
-        id: employee?.id || Math.random().toString(36).substr(2, 9),
-        payrollNumber: formData.payrollNumber,
-          companyName: formData.companyName || '',
+      const baseEmployeeData = {
+        companyName: formData.companyName || '',
         firstName: formData.firstName,
         lastName: formData.lastName,
         designation: formData.designation,
@@ -95,20 +115,49 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
         salary: parseFloat(formData.basicSalary),
       };
 
-      // Call API to save employee
-        const isUpdate = !!employee;
+      // For updates include ID and payrollNumber; for new employees do not send payrollNumber
+      const employeeData = isUpdate
+        ? { id: employee!.id, payrollNumber: formData.payrollNumber, ...baseEmployeeData }
+        : baseEmployeeData;
 
-        if (isUpdate) {
-          await apiService.updateEmployee(employeeData as Employee);
-        } else {
-          await apiService.saveEmployee(employeeData);
-        }
+      const submittedPayrollNumber = isUpdate ? formData.payrollNumber : undefined;
+
+      console.log('[EmployeeFormModal] Submitting employee:', {
+        isUpdate,
+        payrollNumber: submittedPayrollNumber,
+        firstName: baseEmployeeData.firstName,
+      });
+      
+      let result;
+      if (isUpdate) {
+        result = await apiService.updateEmployee(employeeData as Employee);
+        console.log('[EmployeeFormModal] Update result:', result);
+      } else {
+        result = await apiService.saveEmployee(employeeData);
+        console.log('[EmployeeFormModal] Save result:', result);
+      }
+      
+      console.log('[EmployeeFormModal] Successfully saved, calling onSuccess and onClose');
       alert(employee ? 'Employee updated successfully!' : 'Employee added successfully!');
-      onSuccess();
-      onClose();
+      
+      // ✅ CRITICAL: Call onSuccess to refresh the employee table
+      // Add a small delay to ensure API has fully committed
+      setTimeout(() => {
+        try {
+          onSuccess();
+          console.log('[EmployeeFormModal] onSuccess() called successfully');
+        } catch (refreshError) {
+          console.error('[EmployeeFormModal] Error calling onSuccess:', refreshError);
+        } finally {
+          onClose();
+        }
+      }, 300);
+      
     } catch (err) {
       console.error('Save Employee Error:', err);
-      alert(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[EmployeeFormModal] Error details:', { errorMsg, err });
+      alert(`Failed to save: ${errorMsg}`);
     } finally {
       setIsLoading(false);
     }
@@ -154,6 +203,8 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({
               onChange={handleChange}
               required
               placeholder="e.g. EMP-001"
+              disabled={!employee}
+              title={!employee ? "Auto-generated unique payroll number" : ""}
             />
           </div>
           <div className="md:col-span-2">

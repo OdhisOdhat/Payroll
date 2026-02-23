@@ -1,0 +1,24 @@
+version: '3.9'
+
+services:
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env                  # Loads DB_USER, DB_PASSWORD, JWT_SECRET, etc. from your .env file
+    environment:
+      # ──────────────────────────────────────────────
+      # SUPABASE (now filled with your actual values)
+      # ──────────────────────────────────────────────
+      - SUPABASE_URL=https://krihvurwkovrgzuldlwq.supabase.co
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyaWh2dXJ3a292cmd6dWxkbHdxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDk3NDQ3OCwiZXhwIjoyMDg2NTUwNDc4fQ.[your-service-role-secret-here]
+      
+      # Optional overrides / defaults (you can adjust these)
+      - NODE_ENV=production
+      - PORT=4000
+    volumes:
+      # Uncomment these two lines only if you want live code reloading during development
+      # - .:/app
+      # - /app/node_modules
+    restart: unless-stopped
