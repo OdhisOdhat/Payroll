@@ -10,6 +10,9 @@ interface EmployeeTableProps {
   onTerminateEmployee: (employeeId: string) => void;
   userRole: string;
   isLoading?: boolean;
+  selectedIds?: string[];
+  onToggleSelect?: (employeeId: string) => void;
+  onToggleSelectAll?: () => void;
 }
 
 const EmployeeTable: React.FC<EmployeeTableProps> = ({
@@ -18,6 +21,9 @@ const EmployeeTable: React.FC<EmployeeTableProps> = ({
   onTerminateEmployee,
   userRole,
   isLoading = false,
+  selectedIds = [],
+  onToggleSelect,
+  onToggleSelectAll,
 }) => {
   const { brandSettings } = useBrandSettings();
 
@@ -35,6 +41,16 @@ const EmployeeTable: React.FC<EmployeeTableProps> = ({
         <table className="w-full text-left min-w-[700px]">
           <thead>
             <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-black">
+              {onToggleSelect && (
+                <th className="py-4 px-4">
+                  <input
+                    type="checkbox"
+                    className="w-3 h-3 rounded border-slate-300"
+                    checked={employees.length > 0 && selectedIds.length === employees.length}
+                    onChange={() => onToggleSelectAll && onToggleSelectAll()}
+                  />
+                </th>
+              )}
               <th className="py-4 px-6">Payroll No.</th>
               <th className="py-4 px-6">Personnel</th>
               <th className="py-4 px-6">Company</th> {/* ← Added */}
@@ -54,6 +70,16 @@ const EmployeeTable: React.FC<EmployeeTableProps> = ({
                   className="border-b border-slate-50 last:border-0 hover:bg-blue-50/30 transition-all cursor-pointer"
                   onClick={() => onSelectEmployee(emp)}
                 >
+                    {onToggleSelect && (
+                      <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="w-3 h-3 rounded border-slate-300"
+                          checked={selectedIds.includes(emp.id)}
+                          onChange={() => onToggleSelect(emp.id)}
+                        />
+                      </td>
+                    )}
                   <td className="py-4 px-6 text-xs font-black" style={{ color: brandSettings.primaryColor }}>
                     {emp.payrollNumber}
                   </td>

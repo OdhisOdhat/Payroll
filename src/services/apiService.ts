@@ -1,8 +1,13 @@
 // src/services/apiService.ts
 import { Employee, PayrollRecord, PayrollAudit, User, BrandSettings, LeaveRequest, LeaveStatus, PayrollRunParams } from '../types';
-import { supabase } from '../lib/supabase';
+import { getSupabaseClient } from '../lib/supabase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';  // ← kept for reference / prod fallback
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+
+// =========== TOKEN & SESSION CACHE (optimized) ===========
+let cachedToken: string | null = null;
+let cachedUser: User | null = null;
+let tokenRefreshPromise: Promise<string> | null = null;
 
 const memoryStore: Record<string, string> = {};
 
@@ -16,6 +21,54 @@ const safeStorage = {
   removeItem: (key: string): void => {
     try { localStorage.removeItem(key); } catch (e) { delete memoryStore[key]; }
   }
+};
+
+// Efficient token getter with in-memory cache
+const getToken = (): string => {
+  if (cachedToken) return cachedToken;
+  cachedToken = safeStorage.getItem('payroll_token') || '';
+  return cachedToken;
+};
+
+const setToken = (token: string): void => {
+  cachedToken = token;
+  safeStorage.setItem('payroll_token', token);
+};
+
+// =========== REQUEST DEDUPLICATION (reduce redundant calls) ===========
+const requestCache = new Map<string, { data: any; expiry: number }>();
+const pendingRequests = new Map<string, Promise<any>>();
+
+const getCacheKey = (method: string, url: string): string => `${method}:${url}`;
+
+const withRequestDedup = async <T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  cacheTTL: number = 5000 // 5 second default cache
+): Promise<T> => {
+  // Return cached result if still valid
+  const cached = requestCache.get(key);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.data;
+  }
+
+  // Return existing pending request (avoid duplicate in-flight requests)
+  if (pendingRequests.has(key)) {
+    return pendingRequests.get(key)!;
+  }
+
+  // Create new request
+  const promise = fetcher().then(data => {
+    requestCache.set(key, { data, expiry: Date.now() + cacheTTL });
+    pendingRequests.delete(key);
+    return data;
+  }).catch(err => {
+    pendingRequests.delete(key);
+    throw err;
+  });
+
+  pendingRequests.set(key, promise);
+  return promise;
 };
 
 const DEFAULT_BRAND: BrandSettings = {
@@ -52,13 +105,34 @@ const localStore = {
   setLeaveRequests: (data: LeaveRequest[]) => safeStorage.setItem('payroll_leaves', JSON.stringify(data)),
 };
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout: number = 7000): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout: number = 7000, retryCount: number = 0): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    // Add cached token to headers (avoid repeated localStorage reads)
+    const headers = {
+      ...((options.headers as Record<string, string>) || {}),
+    } as Record<string, string>;
+
+    const token = getToken();
+    if (token && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, { ...options, headers, signal: controller.signal });
     clearTimeout(id);
+
+    // Auto-retry on 401 (unauthorized) - token may have expired
+    if (response.status === 401 && retryCount === 0) {
+      cachedToken = null; // Clear stale cache
+      const refreshed = await refreshTokenIfNeeded();
+      if (refreshed) {
+        // Retry once with fresh token
+        return fetchWithTimeout(url, options, timeout, 1);
+      }
+    }
+
     return response;
   } catch (error) {
     clearTimeout(id);
@@ -69,15 +143,37 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout:
   }
 }
 
+async function refreshTokenIfNeeded(): Promise<boolean> {
+  try {
+    // Use Supabase to refresh the session
+    const client = getSupabaseClient();
+    const { data, error } = await client.auth.refreshSession();
+    
+    if (!error && data.session?.access_token) {
+      setToken(data.session.access_token);
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    console.warn('Token refresh failed:', err);
+    return false;
+  }
+}
+
 export const apiService = {
   isLocalMode: false,
   backendChecked: false,
 
+  // Check backend once and cache result
   async checkBackend(): Promise<boolean> {
+    if (this.backendChecked) {
+      return !this.isLocalMode; // Return cached result
+    }
+
     try {
-      console.log("[apiService] Checking backend health →", `/api/health`);
+      console.log("[apiService] Checking backend health");
       const res = await fetchWithTimeout(`/api/health`, { method: 'GET' }, 3000);
-      console.log("[apiService] Health check status:", res.status, res.statusText);
       this.isLocalMode = !res.ok;
       this.backendChecked = true;
       return res.ok;
@@ -89,6 +185,7 @@ export const apiService = {
     }
   },
 
+  // Optimized login with session caching
   async login(email: string, password: string): Promise<User> {
     try {
       const res = await fetchWithTimeout(`/api/login`, {
@@ -112,8 +209,10 @@ export const apiService = {
         lastName: data.user.lastName || '',
       };
 
+      // Update both caches
+      cachedUser = user;
+      setToken(data.token);
       safeStorage.setItem('payroll_user', JSON.stringify(user));
-      safeStorage.setItem('payroll_token', data.token);
 
       return user;
     } catch (err: any) {
@@ -121,78 +220,149 @@ export const apiService = {
     }
   },
 
+  // Get user from memory cache first, then localStorage
   getCurrentUser(): User | null {
+    if (cachedUser) return cachedUser;
     const data = safeStorage.getItem('payroll_user');
-    return data ? JSON.parse(data) : null;
+    if (data) {
+      cachedUser = JSON.parse(data);
+      return cachedUser;
+    }
+    return null;
   },
 
+  // Logout and clear all caches
   logout(): void {
+    cachedUser = null;
+    cachedToken = null;
+    requestCache.clear();
+    pendingRequests.clear();
     safeStorage.removeItem('payroll_user');
     safeStorage.removeItem('payroll_token');
   },
 
-  async getEmployees(): Promise<Employee[]> {
-    if (this.isLocalMode) {
-      console.log("[apiService] Local mode active → returning local employees");
-      return localStore.getEmployees();
-    }
-
+  // Signup with email and password
+  async signup(email: string, password: string, firstName: string, lastName: string): Promise<User> {
     try {
-      console.log("[apiService] Fetching employees from:", `/api/employees`);
-
-      const token = safeStorage.getItem('payroll_token') || '';
-
-      const res = await fetchWithTimeout(`/api/employees`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        }
-      });
+      const res = await fetchWithTimeout(`/api/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, firstName, lastName }),
+      }, 10000);
 
       if (!res.ok) {
-        let errorBody = '';
-        try { errorBody = await res.text(); } catch {}
-        console.error(`[apiService] GET /employees failed`, {
-          status: res.status,
-          statusText: res.statusText,
-          responseBody: errorBody || '(empty body)',
-          url: res.url
-        });
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Signup failed");
+      }
+
+      const data = await res.json();
+      
+      const user: User = {
+        id: data.user.id,
+        email: data.user.email || email,
+        role: data.user.role || 'staff',
+        firstName: data.user.firstName || firstName,
+        lastName: data.user.lastName || lastName,
+      };
+
+      // Update caches
+      cachedUser = user;
+      setToken(data.token);
+      safeStorage.setItem('payroll_user', JSON.stringify(user));
+
+      return user;
+    } catch (err: any) {
+      throw new Error(err?.message || "Signup failed");
+    }
+  },
+
+  // Request password reset
+  async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetchWithTimeout(`/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      }, 10000);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Password reset request failed");
+      }
+
+      return await res.json();
+    } catch (err: any) {
+      throw new Error(err?.message || "Password reset request failed");
+    }
+  },
+
+  // Reset password with token
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetchWithTimeout(`/api/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword }),
+      }, 10000);
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Password reset failed");
+      }
+
+      return await res.json();
+    } catch (err: any) {
+      throw new Error(err?.message || "Password reset failed");
+    }
+  },
+
+  async getEmployees(): Promise<Employee[]> {
+    const cacheKey = getCacheKey('GET', '/api/employees');
+
+    return withRequestDedup(cacheKey, async () => {
+      if (this.isLocalMode) {
+        console.log("[apiService] Local mode → returning local employees");
         return localStore.getEmployees();
       }
 
-      const raw = await res.json();
-      // Supabase sometimes returns an object wrapper like { value: [...], Count: n }
-      const sourceArray = Array.isArray(raw) ? raw : (raw.value || raw.data || []);
-      const data = (sourceArray || []).map((d: any) => ({
-        id: d.id,
-        payrollNumber: d.payroll_number || d.payrollNumber || '',
-        firstName: d.first_name || d.firstName || '',
-        lastName: d.last_name || d.lastName || '',
-        email: d.email || '',
-        kraPin: d.kra_pin || d.kraPin || '',
-        nssfNumber: d.nssf_number || d.nssfNumber || '',
-        nhifNumber: d.nhif_number || d.nhifNumber || '',
-        basicSalary: d.basic_salary ?? d.basicSalary ?? 0,
-        benefits: d.benefits ?? 0,
-        totalLeaveDays: d.total_leave_days ?? d.totalLeaveDays ?? 21,
-        remainingLeaveDays: d.remaining_leave_days ?? d.remainingLeaveDays ?? 21,
-        joinedDate: d.joined_date || d.joinedDate || null,
-        isActive: d.is_active !== undefined ? d.is_active : (d.isActive !== undefined ? d.isActive : true),
-        designation: d.designation || d.position || d.designation || 'Staff',
-        companyName: d.company_name || d.companyName || '',
-        payrollNumberRaw: d.payroll_number,
-      }));
+      try {
+        const res = await fetchWithTimeout(`/api/employees`, { method: 'GET' }, 10000);
 
-      console.log(`[apiService] Loaded ${data.length} employees from backend`);
-      localStore.setEmployees(data); // sync to local for offline use
-      return data;
-    } catch (err: any) {
-      console.error("[apiService] Network error fetching employees:", err.message);
-      return localStore.getEmployees();
-    }
+        if (!res.ok) {
+          console.error(`[apiService] GET /employees failed: ${res.status}`);
+          return localStore.getEmployees();
+        }
+
+        const raw = await res.json();
+        const sourceArray = Array.isArray(raw) ? raw : (raw.value || raw.data || []);
+        const data = (sourceArray || []).map((d: any) => ({
+          id: d.id,
+          payrollNumber: d.payroll_number || d.payrollNumber || '',
+          firstName: d.first_name || d.firstName || '',
+          lastName: d.last_name || d.lastName || '',
+          email: d.email || '',
+          kraPin: d.kra_pin || d.kraPin || '',
+          nssfNumber: d.nssf_number || d.nssfNumber || '',
+          nhifNumber: d.nhif_number || d.nhifNumber || '',
+          basicSalary: d.basic_salary ?? d.basicSalary ?? 0,
+          benefits: d.benefits ?? 0,
+          totalLeaveDays: d.total_leave_days ?? d.totalLeaveDays ?? 21,
+          remainingLeaveDays: d.remaining_leave_days ?? d.remainingLeaveDays ?? 21,
+          joinedDate: d.joined_date || d.joinedDate || null,
+          isActive: d.is_active !== undefined ? d.is_active : (d.isActive !== undefined ? d.isActive : true),
+          designation: d.designation || d.position || 'Staff',
+          companyName: d.company_name || d.companyName || '',
+          payrollNumberRaw: d.payroll_number,
+        }));
+
+        console.log(`[apiService] Loaded ${data.length} employees`);
+        localStore.setEmployees(data);
+        return data;
+      } catch (err: any) {
+        console.error("[apiService] Network error fetching employees:", err.message);
+        return localStore.getEmployees();
+      }
+    }, 10000); // Cache employees for 10 seconds
   },
 
   async saveEmployee(emp: Partial<Employee>): Promise<Employee> {
@@ -211,7 +381,7 @@ export const apiService = {
       // Exclude 'id' field for new employees - let backend generate UUID
       const { id, ...payloadWithoutId } = emp;
       
-      const res = await fetchWithTimeout(`/api/employees`, {
+      const res = await fetchWithTimeout(`/api/employees/bulk-delete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -287,6 +457,36 @@ export const apiService = {
       if (!res.ok) throw new Error('Delete employee failed');
     } catch (err) {
       console.warn('[apiService] deleteEmployee failed', err);
+      throw err;
+    }
+  },
+
+  async deleteEmployeesBulk(ids: string[]): Promise<void> {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+
+    // Optimistically update local cache
+    const emps = localStore.getEmployees();
+    localStore.setEmployees(emps.filter(e => !ids.includes(e.id)));
+
+    if (this.isLocalMode) return;
+
+    try {
+      const token = safeStorage.getItem('payroll_token') || '';
+      const res = await fetchWithTimeout(`/api/employees`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: JSON.stringify({ ids }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '(no message)');
+        throw new Error(`Bulk delete employees failed: ${res.status} - ${errorText}`);
+      }
+    } catch (err) {
+      console.warn('[apiService] deleteEmployeesBulk failed', err);
       throw err;
     }
   },

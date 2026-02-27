@@ -34,7 +34,14 @@ const PayrollRun: React.FC = () => {
     );
   }, []);
 
-  // Current date validation
+  // Year range selection (supports past and future years)
+  const years = useMemo(() => {
+    const start = 2000; // earliest selectable year
+    const end = 2100;   // latest selectable year
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  }, []);
+
+  // Current date validation (used for informational note only)
   const isFutureDate = useMemo(() => {
     const now = new Date();
     return selectedYear > now.getFullYear() || 
@@ -42,10 +49,7 @@ const PayrollRun: React.FC = () => {
   }, [selectedMonth, selectedYear]);
 
   const handleRunPayroll = async () => {
-    if (isFutureDate) {
-      alert('Cannot run payroll for future dates. Please select current or past month.');
-      return;
-    }
+    // Allow running payroll for any selected year/month (including future)
 
     if (activeEmployees.length === 0) {
       alert('No active employees found. Please add employees before running payroll.');
@@ -166,7 +170,7 @@ const PayrollRun: React.FC = () => {
             disabled={isRunning || payrollLoading}
             className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-bold text-slate-700 bg-white disabled:bg-slate-50 disabled:cursor-not-allowed"
           >
-            {[2024, 2025, 2026, 2027].map(year => (
+            {years.map(year => (
               <option key={year} value={year}>
                 {year}
               </option>
@@ -194,7 +198,7 @@ const PayrollRun: React.FC = () => {
         {isFutureDate && (
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-amber-800 text-sm">
             <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-            <span>Warning: Selected date is in the future. Payroll can only be processed for current or past periods.</span>
+            <span>Note: Selected date is in the future. Proceeding will generate payroll for that future period.</span>
           </div>
         )}
       </div>
@@ -202,13 +206,13 @@ const PayrollRun: React.FC = () => {
       {/* Execute Button */}
       <button
         onClick={handleRunPayroll}
-        disabled={isRunning || payrollLoading || isFutureDate || activeEmployees.length === 0}
+        disabled={isRunning || payrollLoading || activeEmployees.length === 0}
         className={`
           w-full py-4 px-6 rounded-xl font-black text-lg shadow-lg flex items-center justify-center gap-3 transition-all
           ${
             isRunning || payrollLoading
               ? 'bg-slate-400 cursor-not-allowed'
-              : isFutureDate || activeEmployees.length === 0
+              : activeEmployees.length === 0
                 ? 'bg-slate-300 cursor-not-allowed'
                 : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white hover:shadow-xl transform hover:-translate-y-0.5'
           }

@@ -133,13 +133,17 @@ export const exportPayslipToPDF = async (
       </div>
     `;
 
-    // PDF options
+    // PDF options – fixed orientation type
     const options = {
-      margin: [10, 10, 10, 10],
-      filename: `Payslip_${employee.lastName || 'Unknown'}_${employee.firstName || 'User'}_${monthName}_${yearValue}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
+      margin: [10, 10, 10, 10] as [number, number, number, number],
+      filename: `payslip_${employee.id}.pdf`,
+      image: { type: 'png' as const, quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' },
+      jsPDF: {
+        orientation: 'portrait' as const,  // ← this fixes the TS2345 error
+        unit: 'mm',
+        format: 'a4'
+      },
     };
 
     // Generate PDF

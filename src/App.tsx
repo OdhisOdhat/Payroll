@@ -1,5 +1,5 @@
 // src/App.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
 // Providers from your specific file structure: src/components/hooks/
@@ -11,6 +11,8 @@ import { BrandSettingsProvider } from './components/hooks/useBrandSettings';
 
 // Components from your specific file structure
 import LoginForm from './components/auth/LoginForm';
+import SignupForm from './components/auth/SignupForm';
+import ForgotPasswordForm from './components/auth/ForgotPasswordForm';
 import MainLayout from './components/layout/MainLayout';
 import Dashboard from './components/dashboard/Dashboard';
 import EmployeeList from './components/employees/EmployeeList';
@@ -19,8 +21,11 @@ import LeaveManagement from './components/leave/LeaveManagement';
 import PayrollReports from './components/reports/PayrollReports';
 import SettingsPage from './components/settings/SettingsPage';
 
+type AuthScreen = 'login' | 'signup' | 'forgot-password';
+
 const AppContent: React.FC = () => {
   const { user, isLoading } = useAuth();
+  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
 
   // 1. Loading State: Show a spinner while the app boots up
   if (isLoading) {
@@ -34,10 +39,38 @@ const AppContent: React.FC = () => {
 
   /** * 2. Auth Gate: 
    * If you want to see the dashboard IMMEDIATELY without logging in, 
-   * comment out lines 44-46 below.
+   * comment out lines 54-71 below.
    */
   if (!user) {
-    return <LoginForm />;
+    return (
+      <>
+        {authScreen === 'login' && (
+          <LoginForm
+            onSuccess={() => {
+              setAuthScreen('login');
+            }}
+            onForgotPassword={() => setAuthScreen('forgot-password')}
+            onSignUp={() => setAuthScreen('signup')}
+          />
+        )}
+        {authScreen === 'signup' && (
+          <SignupForm
+            onSuccess={() => {
+              setAuthScreen('login');
+            }}
+            onBack={() => setAuthScreen('login')}
+          />
+        )}
+        {authScreen === 'forgot-password' && (
+          <ForgotPasswordForm
+            onSuccess={() => {
+              setAuthScreen('login');
+            }}
+            onBack={() => setAuthScreen('login')}
+          />
+        )}
+      </>
+    );
   }
 
   return (

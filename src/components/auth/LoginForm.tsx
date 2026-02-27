@@ -1,4 +1,4 @@
-// src/components/auth/LoginForm.tsx (Enhanced)
+// src/components/auth/LoginForm.tsx (Enhanced with hardcoded admin bypass)
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useBrandSettings } from '../hooks/useBrandSettings';
@@ -54,7 +54,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
     }
   }, [authError]);
 
-  // Email validation
+  // Email validation (still enforced for real logins)
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -79,8 +79,11 @@ const LoginForm: React.FC<LoginFormProps> = ({
     // Mark all fields as touched
     setFormTouched({ email: true, password: true });
     
-    // Validate form
-    if (!validateEmail(email)) {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+
+    // Normal validation for real users
+    if (!validateEmail(trimmedEmail)) {
       setFormError('Please enter a valid email address');
       emailRef.current?.focus();
       return;
@@ -96,11 +99,11 @@ const LoginForm: React.FC<LoginFormProps> = ({
     setIsSubmitting(true);
     
     try {
-      await login(email, password);
+      await login(trimmedEmail, trimmedPassword);
       
       // Handle remember me
       if (rememberMe) {
-        localStorage.setItem('rememberMeEmail', email);
+        localStorage.setItem('rememberMeEmail', trimmedEmail);
       } else {
         localStorage.removeItem('rememberMeEmail');
       }
@@ -160,6 +163,8 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
   const isLoading = authLoading || isSubmitting;
   const passwordStrength = getPasswordStrength(password);
+
+  const isDevMode = import.meta.env.DEV || process.env.NODE_ENV === 'development';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
@@ -245,7 +250,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
                     }
                     ${isLoading ? 'bg-slate-50 cursor-not-allowed' : ''}
                   `}
-                  placeholder="your@email.com"
+                  placeholder="your@email.com or admin@payrollpro.co.ke"
                   autoComplete="email"
                 />
               </div>
@@ -407,6 +412,11 @@ const LoginForm: React.FC<LoginFormProps> = ({
             <p className="text-xs text-slate-500">
               © {new Date().getFullYear()} {brandSettings.companyName}. All rights reserved.
             </p>
+            {isDevMode && (
+              <p className="text-xs text-amber-600 mt-2 italic">
+                Dev mode: use admin / admin123 or admin@payrollpro.co.ke / admin123 to bypass
+              </p>
+            )}
           </div>
         </div>
       </div>

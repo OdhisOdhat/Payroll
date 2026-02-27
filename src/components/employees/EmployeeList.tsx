@@ -25,6 +25,7 @@ const EmployeeList: React.FC = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
 
   // Filter employees based on role and search
   const accessibleEmployees = employees.filter(e => 
@@ -47,6 +48,38 @@ const EmployeeList: React.FC = () => {
 
   const handleExport = () => {
     downloadCSV(accessibleEmployees, `Employees_${new Date().toISOString()}.csv`);
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedEmployeeIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedEmployeeIds.length === filteredEmployees.length) {
+      setSelectedEmployeeIds([]);
+    } else {
+      setSelectedEmployeeIds(filteredEmployees.map(e => e.id));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedEmployeeIds.length === 0) return;
+
+    if (!window.confirm(`Delete ${selectedEmployeeIds.length} selected employees? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await apiService.deleteEmployeesBulk(selectedEmployeeIds);
+      setSelectedEmployeeIds([]);
+      await refetch();
+      alert('Selected employees deleted successfully.');
+    } catch (err: any) {
+      console.error('Bulk delete error:', err);
+      alert(err?.message || 'Failed to delete selected employees.');
+    }
   };
 
   const handleImportCSV = async (file: File) => {
@@ -134,6 +167,14 @@ const EmployeeList: React.FC = () => {
               <Plus size={18} /> Onboard Personnel
             </button>
           )}
+          {(user.role === 'admin') && selectedEmployeeIds.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="bg-red-600 text-white px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-xl font-bold col-span-2 text-xs"
+            >
+              Delete Selected ({selectedEmployeeIds.length})
+            </button>
+          )}
         </div>
         <input
           id="csv-import"
@@ -183,6 +224,9 @@ const EmployeeList: React.FC = () => {
           }
         }}
         userRole={user.role}
+        selectedIds={selectedEmployeeIds}
+        onToggleSelect={user.role === 'admin' ? handleToggleSelect : undefined}
+        onToggleSelectAll={user.role === 'admin' ? handleToggleSelectAll : undefined}
       />
 
       {showAddEmployee && (
